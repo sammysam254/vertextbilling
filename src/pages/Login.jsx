@@ -88,7 +88,7 @@ export default function Login() {
       minHeight: '100vh',
       background: 'linear-gradient(135deg, #0d1117 0%, #0f2027 60%, #0d1117 100%)',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
-      padding: 24, position: 'relative', overflow: 'hidden',
+      padding: '40px 24px', position: 'relative', overflowY: 'auto',
     }}>
       {/* Glow orbs */}
       <div style={{

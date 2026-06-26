@@ -50,9 +50,37 @@ export default function Mikrotiks() {
   }
 
   function copyScript() {
-    navigator.clipboard.writeText(getScript())
-    setCopied(true)
-    setTimeout(() => setCopied(false), 2000)
+    const text = getScript()
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      }).catch(() => {
+        fallbackCopyText(text)
+      })
+    } else {
+      fallbackCopyText(text)
+    }
+  }
+
+  function fallbackCopyText(text) {
+    const textArea = document.createElement("textarea")
+    textArea.value = text
+    textArea.style.top = "0"
+    textArea.style.left = "0"
+    textArea.style.position = "fixed"
+    textArea.style.opacity = "0"
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    try {
+      document.execCommand('copy')
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Fallback copy failed', err)
+    }
+    document.body.removeChild(textArea)
   }
 
   function downloadScript() {
