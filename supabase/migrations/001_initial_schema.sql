@@ -136,9 +136,11 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+DROP TRIGGER IF EXISTS trg_plans_updated_at ON plans;
 CREATE TRIGGER trg_plans_updated_at
   BEFORE UPDATE ON plans FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
+DROP TRIGGER IF EXISTS trg_customers_updated_at ON customers;
 CREATE TRIGGER trg_customers_updated_at
   BEFORE UPDATE ON customers FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
