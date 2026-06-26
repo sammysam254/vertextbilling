@@ -156,35 +156,51 @@ ALTER TABLE mikrotik_configs  ENABLE ROW LEVEL SECURITY;
 ALTER TABLE notifications     ENABLE ROW LEVEL SECURITY;
 
 -- Plans: public read (for captive portal), admin write
+DROP POLICY IF EXISTS "plans_public_read" ON plans;
 CREATE POLICY "plans_public_read"  ON plans FOR SELECT USING (TRUE);
+DROP POLICY IF EXISTS "plans_admin_all" ON plans;
 CREATE POLICY "plans_admin_all"    ON plans FOR ALL USING (auth.role() = 'authenticated');
 
 -- Sessions: public insert (portal creates them), admin read/update
+DROP POLICY IF EXISTS "sessions_public_insert" ON hotspot_sessions;
 CREATE POLICY "sessions_public_insert" ON hotspot_sessions FOR INSERT WITH CHECK (TRUE);
+DROP POLICY IF EXISTS "sessions_public_read" ON hotspot_sessions;
 CREATE POLICY "sessions_public_read"   ON hotspot_sessions FOR SELECT USING (TRUE);
+DROP POLICY IF EXISTS "sessions_admin_update" ON hotspot_sessions;
 CREATE POLICY "sessions_admin_update"  ON hotspot_sessions FOR UPDATE USING (auth.role() = 'authenticated');
 
 -- Payments: public insert (portal creates payments), admin all
+DROP POLICY IF EXISTS "payments_public_insert" ON payments;
 CREATE POLICY "payments_public_insert" ON payments FOR INSERT WITH CHECK (TRUE);
+DROP POLICY IF EXISTS "payments_admin_read" ON payments;
 CREATE POLICY "payments_admin_read"    ON payments FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "payments_admin_update" ON payments;
 CREATE POLICY "payments_admin_update"  ON payments FOR UPDATE USING (auth.role() = 'authenticated');
 
 -- Customers: public insert + select (for phone lookup), admin all
+DROP POLICY IF EXISTS "customers_public_insert" ON customers;
 CREATE POLICY "customers_public_insert" ON customers FOR INSERT WITH CHECK (TRUE);
+DROP POLICY IF EXISTS "customers_public_select" ON customers;
 CREATE POLICY "customers_public_select" ON customers FOR SELECT USING (TRUE);
+DROP POLICY IF EXISTS "customers_admin_all" ON customers;
 CREATE POLICY "customers_admin_all"     ON customers FOR ALL USING (auth.role() = 'authenticated');
 
 -- Vouchers: admin only
+DROP POLICY IF EXISTS "vouchers_admin_all" ON vouchers;
 CREATE POLICY "vouchers_admin_all"  ON vouchers FOR ALL USING (auth.role() = 'authenticated');
 
 -- Coupons: admin only
+DROP POLICY IF EXISTS "coupons_admin_all" ON coupons;
 CREATE POLICY "coupons_admin_all"   ON coupons FOR ALL USING (auth.role() = 'authenticated');
 
 -- MikroTik configs: admin only
+DROP POLICY IF EXISTS "mikrotik_admin_all" ON mikrotik_configs;
 CREATE POLICY "mikrotik_admin_all"  ON mikrotik_configs FOR ALL USING (auth.role() = 'authenticated');
 
 -- Notifications: admin only
+DROP POLICY IF EXISTS "notifs_admin_all" ON notifications;
 CREATE POLICY "notifs_admin_all"    ON notifications FOR ALL USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "notifs_admin_insert" ON notifications;
 CREATE POLICY "notifs_admin_insert" ON notifications FOR INSERT WITH CHECK (TRUE);
 
 -- ─── SEED: Sample plans ─────────────────────────────────────────
