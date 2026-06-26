@@ -201,3 +201,47 @@ ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS interface_name TEXT DEFAUL
 ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS network_cidr TEXT DEFAULT '192.168.88.0/24';
 ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS dns_server TEXT DEFAULT '8.8.8.8';
 ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS billing_url TEXT;
+
+-- ─── MULTI-TENANT ISOLATION (USER_ID COLUMNS) ──────────────────────
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE customers ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE hotspot_sessions ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE payments ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE vouchers ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+ALTER TABLE notifications ADD COLUMN IF NOT EXISTS user_id UUID DEFAULT auth.uid() REFERENCES auth.users(id) ON DELETE CASCADE;
+
+-- ─── UPDATE RLS POLICIES FOR OWNER ISOLATION ───────────────────────
+-- Plans: public read, owner write
+DROP POLICY IF EXISTS "plans_admin_all" ON plans;
+CREATE POLICY "plans_admin_all" ON plans FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Sessions: public insert, owner read/write
+DROP POLICY IF EXISTS "sessions_admin_update" ON hotspot_sessions;
+CREATE POLICY "sessions_admin_all" ON hotspot_sessions FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Payments: public insert, owner read/write
+DROP POLICY IF EXISTS "payments_admin_read" ON payments;
+DROP POLICY IF EXISTS "payments_admin_update" ON payments;
+CREATE POLICY "payments_admin_all" ON payments FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Customers: public insert + select, owner read/write
+DROP POLICY IF EXISTS "customers_admin_all" ON customers;
+CREATE POLICY "customers_admin_all" ON customers FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Vouchers: owner only
+DROP POLICY IF EXISTS "vouchers_admin_all" ON vouchers;
+CREATE POLICY "vouchers_admin_all" ON vouchers FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Coupons: owner only
+DROP POLICY IF EXISTS "coupons_admin_all" ON coupons;
+CREATE POLICY "coupons_admin_all" ON coupons FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- MikroTik configs: owner only
+DROP POLICY IF EXISTS "mikrotik_admin_all" ON mikrotik_configs;
+CREATE POLICY "mikrotik_admin_all" ON mikrotik_configs FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- Notifications: owner only
+DROP POLICY IF EXISTS "notifs_admin_all" ON notifications;
+CREATE POLICY "notifs_admin_all" ON notifications FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

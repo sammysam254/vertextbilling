@@ -25,16 +25,23 @@ serve(async (req) => {
   // Handle GET request (this is the MikroTik heartbeat / poll)
   if (req.method === 'GET') {
     try {
+      const url = new URL(req.url)
+      const routerId = url.searchParams.get('router')
+
+      if (!routerId) {
+        throw new Error('Missing router parameter')
+      }
+
       const supabase = createClient(
         Deno.env.get('SUPABASE_URL') ?? '',
         Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
       )
 
-      // Update the last_seen timestamp in mikrotik_configs for active configs
+      // Update the last_seen timestamp in mikrotik_configs for this specific router
       const { data, error } = await supabase
         .from('mikrotik_configs')
         .update({ last_seen: new Date().toISOString() })
-        .eq('active', true)
+        .eq('id', routerId)
         .select()
 
       if (error) throw error
@@ -46,14 +53,14 @@ serve(async (req) => {
     } catch (err) {
       return new Response(
         JSON.stringify({ success: false, error: err.message }),
-        { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       )
     }
   }
 
   try {
     const body = await req.json()
-    const { sessionId, paymentId, macAddress, ipAddress, planName, duration, customerId } = body
+    const { sessionId, paymentId, macAddress, ipAddress, planName, duration, customerId, userId } = body
 
     // Init Supabase admin client
     const supabase = createClient(
@@ -61,10 +68,11 @@ serve(async (req) => {
       Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
     )
 
-    // 1. Fetch MikroTik config from DB
+    // 1. Fetch MikroTik config belonging to this ISP account from DB
     const { data: configs } = await supabase
       .from('mikrotik_configs')
       .select('*')
+      .eq('user_id', userId)
       .eq('active', true)
       .limit(1)
 

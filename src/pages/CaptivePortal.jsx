@@ -21,6 +21,7 @@ export default function CaptivePortal() {
   const macAddress = params.get('mac') || params.get('mac-address') || ''
   const clientIp   = params.get('ip')  || ''
   const linkOrig   = params.get('link-orig') || params.get('link-login-only') || ''
+  const ispId      = params.get('isp') || ''
 
   const [plans,   setPlans]   = useState([])
   const [selected, setSelected] = useState(null)
@@ -32,23 +33,22 @@ export default function CaptivePortal() {
   const pollRef = useRef(null)
 
   useEffect(() => {
-    supabase
+    let query = supabase
       .from('plans')
       .select('*')
       .eq('type', 'hotspot')
       .eq('active', true)
+
+    if (ispId) {
+      query = query.eq('user_id', ispId)
+    }
+
+    query
       .order('price', { ascending: true })
-      .then(({ data }) => {
-        // fallback: if no 'active' column, just get all hotspot plans
-        if (!data || data.length === 0) {
-          return supabase.from('plans').select('*').eq('type', 'hotspot').order('price', { ascending: true })
-        }
-        return { data }
-      })
       .then(({ data }) => setPlans(data || []))
 
     return () => clearInterval(pollRef.current)
-  }, [])
+  }, [ispId])
 
   function formatDuration(h) {
     if (!h) return ''
@@ -81,25 +81,29 @@ export default function CaptivePortal() {
       if (existing) {
         customerId = existing.id
       } else {
+        const custPayload = { phone, name: phone, mac_address: macAddress, plan_id: selected.id, status: 'active' }
+        if (ispId) custPayload.user_id = ispId
         const { data: newCust } = await supabase
           .from('customers')
-          .insert({ phone, name: phone, mac_address: macAddress, plan_id: selected.id, status: 'active' })
+          .insert(custPayload)
           .select('id')
           .single()
         customerId = newCust.id
       }
 
       // 2. Create payment record (status: pending)
+      const payPayload = {
+        customer_id: customerId,
+        plan_id: selected.id,
+        amount: selected.price,
+        method: 'cash',  // can be extended to M-Pesa
+        status: 'pending',
+        reference: `WEB-${Date.now()}`,
+      }
+      if (ispId) payPayload.user_id = ispId
       const { data: pay } = await supabase
         .from('payments')
-        .insert({
-          customer_id: customerId,
-          plan_id: selected.id,
-          amount: selected.price,
-          method: 'cash',  // can be extended to M-Pesa
-          status: 'pending',
-          reference: `WEB-${Date.now()}`,
-        })
+        .insert(payPayload)
         .select()
         .single()
 
@@ -107,17 +111,19 @@ export default function CaptivePortal() {
 
       // 3. Create hotspot session entry
       const expiresAt = new Date(Date.now() + selected.duration_hours * 3600 * 1000).toISOString()
+      const sessionPayload = {
+        customer_id: customerId,
+        plan_id: selected.id,
+        mac_address: macAddress,
+        ip_address: clientIp,
+        started_at: new Date().toISOString(),
+        expires_at: expiresAt,
+        status: 'pending',
+      }
+      if (ispId) sessionPayload.user_id = ispId
       const { data: session } = await supabase
         .from('hotspot_sessions')
-        .insert({
-          customer_id: customerId,
-          plan_id: selected.id,
-          mac_address: macAddress,
-          ip_address: clientIp,
-          started_at: new Date().toISOString(),
-          expires_at: expiresAt,
-          status: 'pending',
-        })
+        .insert(sessionPayload)
         .select()
         .single()
 
@@ -132,6 +138,7 @@ export default function CaptivePortal() {
           ipAddress: clientIp,
           planName: selected.name,
           duration: selected.duration_hours,
+          userId: ispId,
         }
       })
 

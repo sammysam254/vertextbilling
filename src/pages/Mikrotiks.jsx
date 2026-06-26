@@ -39,14 +39,21 @@ export default function Mikrotiks() {
   const fetchConfigAndPlans = async () => {
     setLoading(true)
     try {
-      // 1. Fetch plans
-      const { data: plansData } = await supabase.from('plans').select('*')
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      // 1. Fetch plans for this user
+      const { data: plansData } = await supabase
+        .from('plans')
+        .select('*')
+        .eq('user_id', user.id)
       setPlans(plansData || [])
 
-      // 2. Fetch active MikroTik config
+      // 2. Fetch active MikroTik config for this user
       const { data: configData } = await supabase
         .from('mikrotik_configs')
         .select('*')
+        .eq('user_id', user.id)
         .eq('active', true)
         .limit(1)
 
@@ -65,7 +72,13 @@ export default function Mikrotiks() {
           apiPassword: mt.password || 'StrongP@ss123!',
           supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
           supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+          user_id: mt.user_id || user.id,
         })
+      } else {
+        setConfig(prev => ({
+          ...prev,
+          user_id: user.id
+        }))
       }
     } catch (err) {
       console.error('Error fetching MikroTik config:', err)
@@ -79,10 +92,11 @@ export default function Mikrotiks() {
 
     // Poll router status every 5 seconds
     const interval = setInterval(async () => {
+      if (!configId) return
       const { data } = await supabase
         .from('mikrotik_configs')
         .select('last_seen')
-        .eq('active', true)
+        .eq('id', configId)
         .limit(1)
       if (data && data.length > 0) {
         setLastSeen(data[0].last_seen)
@@ -95,6 +109,9 @@ export default function Mikrotiks() {
   const handleApplyConfig = async () => {
     setSaving(true)
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('Not authenticated')
+
       const payload = {
         name: config.hotspotName,
         host: config.hotspotGateway,
@@ -107,6 +124,7 @@ export default function Mikrotiks() {
         dns_server: config.dnsServer,
         billing_url: config.billingServerUrl,
         active: true,
+        user_id: user.id,
       }
 
       let res
@@ -115,16 +133,17 @@ export default function Mikrotiks() {
           .from('mikrotik_configs')
           .update(payload)
           .eq('id', configId)
+          .select()
       } else {
         res = await supabase
           .from('mikrotik_configs')
           .insert(payload)
-          .select('id')
+          .select()
       }
 
       if (res.error) throw res.error
 
-      if (!configId && res.data && res.data.length > 0) {
+      if (res.data && res.data.length > 0) {
         setConfigId(res.data[0].id)
       }
 
@@ -139,7 +158,7 @@ export default function Mikrotiks() {
 
   function getScript() {
     switch (activeScript) {
-      case 'unified':  return generateUnifiedSetupScript(config, plans)
+      case 'unified':  return generateUnifiedSetupScript({ ...config, id: configId || 'ROUTER_ID' }, plans)
       case 'plans':    return generatePlanProfilesScript(plans)
       default:         return '# Select a script above'
     }

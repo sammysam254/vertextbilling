@@ -283,6 +283,7 @@ export function generateRemoveUserScript(username = '') {
  */
 export function generateUnifiedSetupScript(config = {}, plans = []) {
   const {
+    id = 'ROUTER_ID',
     interfaceName = 'ether2',
     hotspotNetwork = '192.168.88.0/24',
     hotspotGateway = '192.168.88.1',
@@ -293,6 +294,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
     apiPassword = 'StrongP@ss123!',
     supabaseUrl = 'https://your-project.supabase.co',
     supabaseAnonKey = 'your-anon-key',
+    user_id = 'USER_ID',
   } = config
 
   let walledGardenCmds = ''
@@ -385,7 +387,7 @@ ${walledGardenCmds}
 # 7. Setup external portal redirection in login.html
 # Overwrite default login.html to automatically redirect client browsers to captive portal
 :delay 2s
-/file set [find name="hotspot/login.html"] contents="<html><head><meta http-equiv=\\"refresh\\" content=\\"0; url=${billingServerUrl}/portal?mac=\\\\$(mac)&ip=\\\\$(ip)&link-orig=\\\\$(link-orig-esc)\\" /></head></html>"
+/file set [find name="hotspot/login.html"] contents="<html><head><meta http-equiv=\\"refresh\\" content=\\"0; url=${billingServerUrl}/portal?isp=${user_id}&mac=\\\\$(mac)&ip=\\\\$(ip)&link-orig=\\\\$(link-orig-esc)\\" /></head></html>"
 
 # 8. Create API User for Billing Connection
 :if ([:len [/user group find where name="billing-group"]] = 0) do={
@@ -408,7 +410,7 @@ ${profileLines}
 
 # 10. Create Cloud Trigger Script & Scheduler
 /system script remove [find name=billing-trigger]
-/system script add name=billing-trigger source=":global billingUrl \\"${supabaseUrl}/functions/v1/mikrotik-trigger\\"
+/system script add name=billing-trigger source=":global billingUrl \\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\\"
 :global billingKey \\"${supabaseAnonKey}\\"
 :do {
   /tool fetch url=(\\\$billingUrl) check-certificate=no http-method=get http-header-field=\\"Authorization: Bearer \\\$billingKey\\" output=none as-value
