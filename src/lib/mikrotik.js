@@ -410,12 +410,22 @@ ${profileLines}
 
 # 10. Create Cloud Trigger Script & Scheduler
 /system script remove [find name=billing-trigger]
-/system script add name=billing-trigger source=":global billingUrl \\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\\"
-:global billingKey \\"${supabaseAnonKey}\\"
-:do {
-  /tool fetch url=(\\\$billingUrl) check-certificate=no http-method=get http-header-field=\\"Authorization: Bearer \\\$billingKey\\" output=none as-value
+/system script add name=billing-trigger source=":do {
+  /tool fetch url=\\"${supabaseUrl}/rest/v1/rpc/checkin_router\\" check-certificate=no \\
+    http-method=post \\
+    http-header-field=\\"apikey: ${supabaseAnonKey},Authorization: Bearer ${supabaseAnonKey},Content-Type: application/json,Accept: text/plain\\" \\
+    http-data=\\"{\\\\\\"router_id\\\\\\":\\\\\\"${id}\\\\\\"}\\" \\
+    keep-result=yes \\
+    dst-path=\\"action.rsc\\"
+
+  :if ([:len [/file find where name=\\"action.rsc\\"]] > 0) do={
+    :if ([/file get action.rsc size] > 2) do={
+      :delay 1s
+      /import action.rsc
+    }
+  }
 } on-error={
-  :log error \\"Billing trigger failed - check network\\"
+  :log error \\"Billing trigger heartbeat failed\\"
 }"
 
 # Schedule the trigger script to run every 2 seconds

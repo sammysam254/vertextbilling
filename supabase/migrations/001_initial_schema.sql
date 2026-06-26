@@ -263,3 +263,58 @@ CREATE POLICY "mikrotik_admin_all" ON mikrotik_configs FOR ALL USING (auth.uid()
 -- Notifications: owner only
 DROP POLICY IF EXISTS "notifs_admin_all" ON notifications;
 CREATE POLICY "notifs_admin_all" ON notifications FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+-- ─── CHECKIN ROUTER RPC (NO EDGE FUNCTION SOLUTION) ───────────────
+CREATE OR REPLACE FUNCTION checkin_router(router_id UUID)
+RETURNS TEXT AS $$
+DECLARE
+  sess RECORD;
+  plan_rec RECORD;
+  commands TEXT := '';
+  username TEXT;
+  password TEXT;
+  session_timeout TEXT;
+BEGIN
+  -- 1. Update heartbeat
+  UPDATE mikrotik_configs
+  SET last_seen = NOW()
+  WHERE id = router_id;
+
+  -- 2. Find pending sessions for this router's owner
+  FOR sess IN 
+    SELECT s.*, c.user_id as owner_id 
+    FROM hotspot_sessions s
+    JOIN mikrotik_configs c ON c.id = router_id
+    WHERE s.status = 'pending' AND s.user_id = c.user_id
+  LOOP
+    -- Fetch plan details
+    SELECT * INTO plan_rec FROM plans WHERE id = sess.plan_id;
+    
+    -- Generate unique credentials
+    username := 'hs_' || lower(replace(sess.mac_address, ':', ''));
+    password := substring(md5(random()::text) from 1 for 8);
+    session_timeout := plan_rec.duration_hours || 'h';
+
+    -- Generate RouterOS commands to add and log in user
+    commands := commands || 
+      '/ip hotspot user remove [find where name="' || COALESCE(username, '') || '"];' || CHR(10) ||
+      '/ip hotspot user add name="' || COALESCE(username, '') || '" password="' || COALESCE(password, '') || '" profile="' || COALESCE(plan_rec.name, '') || '" limit-uptime=' || COALESCE(session_timeout, '24h') || ' comment="Vertex Session ' || COALESCE(sess.id::text, '') || '";' || CHR(10) ||
+      '/ip hotspot active login user="' || COALESCE(username, '') || '" password="' || COALESCE(password, '') || '" ip="' || COALESCE(sess.ip_address, '') || '" mac-address="' || COALESCE(sess.mac_address, '') || '";' || CHR(10);
+
+    -- Mark session as active in DB
+    UPDATE hotspot_sessions 
+    SET status = 'active', mikrotik_user = username 
+    WHERE id = sess.id;
+
+    -- Confirm payment in DB
+    UPDATE payments
+    SET status = 'confirmed'
+    WHERE customer_id = sess.customer_id AND plan_id = sess.plan_id AND status = 'pending';
+
+  END LOOP;
+
+  RETURN commands;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+GRANT EXECUTE ON FUNCTION checkin_router(UUID) TO anon, authenticated;
