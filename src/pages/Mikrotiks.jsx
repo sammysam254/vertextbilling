@@ -59,7 +59,7 @@ export default function Mikrotiks() {
     const blob = new Blob([getScript()], { type: 'text/plain' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `naswifi-${activeScript}.rsc`
+    a.download = `vertex-${activeScript}.rsc`
     a.click()
   }
 
@@ -155,7 +155,7 @@ export default function Mikrotiks() {
 
           <div className="code-block">
             <div className="code-block-header">
-              <span style={{ fontFamily: 'var(--font-mono)' }}>naswifi-{activeScript}.rsc</span>
+              <span style={{ fontFamily: 'var(--font-mono)' }}>vertex-{activeScript}.rsc</span>
               <span style={{ color: 'var(--teal-500)' }}>RouterOS Script</span>
             </div>
             <pre>{getScript()}</pre>

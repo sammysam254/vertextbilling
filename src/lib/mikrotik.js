@@ -8,7 +8,7 @@
  */
 export function generateHotspotSetupScript(config = {}) {
   const {
-    interfaceName = 'ether1',
+    interfaceName = 'ether2',
     hotspotNetwork = '192.168.88.0/24',
     hotspotGateway = '192.168.88.1',
     dnsServer = '8.8.8.8',
@@ -16,39 +16,85 @@ export function generateHotspotSetupScript(config = {}) {
     billingServerUrl = 'http://192.168.88.1:3000',
   } = config
 
+  let walledGardenCmds = ''
+  try {
+    const url = new URL(billingServerUrl)
+    if (url.hostname && !/^[0-9.]+$/.test(url.hostname)) {
+      walledGardenCmds = `/ip hotspot walled-garden add dst-host="${url.hostname}" action=accept`
+    } else if (url.hostname) {
+      walledGardenCmds = `/ip hotspot walled-garden ip add dst-address=${url.hostname} action=accept`
+    }
+  } catch (e) {
+    walledGardenCmds = `/ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept`
+  }
+
   return `# =============================================================
 # Vertex Billing – Hotspot Initial Setup Script
 # Run this in MikroTik Terminal (Winbox > New Terminal)
 # =============================================================
 
-# 1. Set IP address on the hotspot interface
-/ip address add address=${hotspotGateway}/24 interface=${interfaceName} comment="Hotspot Gateway"
+# 1. Prepare interface
+# If interface is currently a port of a bridge, remove it to allow direct configuration
+:if ([:len [/interface bridge port find where interface=${interfaceName}]] > 0) do={
+  /interface bridge port remove [find where interface=${interfaceName}]
+}
+
+# Set IP address on the hotspot interface if not already set
+:if ([:len [/ip address find where interface="${interfaceName}"]] = 0) do={
+  /ip address add address=${hotspotGateway}/24 interface=${interfaceName} comment="Hotspot Gateway"
+}
 
 # 2. Setup DNS
 /ip dns set servers=${dnsServer},8.8.4.4 allow-remote-requests=yes
 
 # 3. Setup DHCP server for hotspot clients
-/ip pool add name=hs-pool ranges=192.168.88.10-192.168.88.254
-/ip dhcp-server add name=hotspot-dhcp interface=${interfaceName} address-pool=hs-pool lease-time=1h disabled=no
-/ip dhcp-server network add address=${hotspotNetwork} gateway=${hotspotGateway} dns-server=${hotspotGateway}
+:if ([:len [/ip pool find where name="hs-pool"]] = 0) do={
+  /ip pool add name=hs-pool ranges=192.168.88.10-192.168.88.254
+}
+:if ([:len [/ip dhcp-server find where interface="${interfaceName}"]] = 0) do={
+  /ip dhcp-server add name=hotspot-dhcp interface=${interfaceName} address-pool=hs-pool lease-time=1h disabled=no
+}
+:if ([:len [/ip dhcp-server network find where address="${hotspotNetwork}"]] = 0) do={
+  /ip dhcp-server network add address=${hotspotNetwork} gateway=${hotspotGateway} dns-server=${hotspotGateway}
+}
 
-# 4. Setup Hotspot server
-/ip hotspot setup hotspot-interface=${interfaceName} local-address=${hotspotGateway}/24 \\
-  masquerade-network=yes address-pool=hs-pool \\
-  select-certificate=no smtp-server=0.0.0.0 \\
-  dns-name=${hotspotName} name=${hotspotName}
+# 4. Setup Hotspot Profile (Non-interactive)
+:if ([:len [/ip hotspot profile find where name="Vertex-Profile"]] > 0) do={
+  /ip hotspot profile remove [find name="Vertex-Profile"]
+}
+/ip hotspot profile add name="Vertex-Profile" \\
+  hotspot-address=${hotspotGateway} \\
+  dns-name="${hotspotName}" \\
+  html-directory="hotspot" \\
+  login-by=http-chap,http-pap,mac
 
-# 5. Set login page to redirect to billing server
-/ip hotspot set [find name=${hotspotName}] login-page=${billingServerUrl}/portal
+# 5. Setup Hotspot Server (Non-interactive)
+:if ([:len [/ip hotspot find where name="${hotspotName}"]] > 0) do={
+  /ip hotspot remove [find name="${hotspotName}"]
+}
+/ip hotspot add name="${hotspotName}" \\
+  interface=${interfaceName} \\
+  address-pool=hs-pool \\
+  profile="Vertex-Profile" \\
+  disabled=no
 
-# 6. Walled garden – allow billing server without login
+# 6. Walled garden – allow billing server and portal without login
 /ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept
+${walledGardenCmds}
 
-# 7. Disable HTML login page (we use external portal)
-/ip hotspot profile set [find name=default] login-by=http-chap,http-pap,mac
+# 7. Setup external portal redirection in login.html
+# Overwrite default login.html to automatically redirect client browsers to captive portal
+:delay 2s
+/file set [find name="hotspot/login.html"] contents="<html><head><meta http-equiv=\\"refresh\\" content=\\"0; url=${billingServerUrl}/portal?mac=\\\\$(mac)&ip=\\\\$(ip)&link-orig=\\\\$(link-orig-esc)\\" /></head></html>"
 
-# 8. NAT masquerade
-/ip firewall nat add chain=srcnat out-interface=ether1-wan action=masquerade
+# 8. NAT masquerade for internet access
+:if ([:len [/ip firewall nat find where comment="NAT Masquerade"]] = 0) do={
+  :if ([:len [/interface list find where name="WAN"]] > 0) do={
+    /ip firewall nat add chain=srcnat out-interface-list=WAN action=masquerade comment="NAT Masquerade"
+  } else={
+    /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Masquerade"
+  }
+}
 
 :log info "Vertex Billing Hotspot setup complete!"
 `
