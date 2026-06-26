@@ -127,20 +127,23 @@ export default function CaptivePortal() {
         .select()
         .single()
 
-      // 4. Trigger Edge Function for MikroTik login
-      //    This fires immediately and MikroTik API logs the user in < 1 sec
-      await supabase.functions.invoke('mikrotik-trigger', {
-        body: {
-          sessionId: session.id,
-          paymentId: pay.id,
-          customerId,
-          macAddress,
-          ipAddress: clientIp,
-          planName: selected.name,
-          duration: selected.duration_hours,
-          userId: ispId,
-        }
-      })
+      // 4. Trigger Edge Function for MikroTik login (optional fallback)
+      try {
+        await supabase.functions.invoke('mikrotik-trigger', {
+          body: {
+            sessionId: session.id,
+            paymentId: pay.id,
+            customerId,
+            macAddress,
+            ipAddress: clientIp,
+            planName: selected.name,
+            duration: selected.duration_hours,
+            userId: ispId,
+          }
+        })
+      } catch (fe) {
+        console.warn('Edge function invoke skipped or failed (falling back to database polling):', fe)
+      }
 
       setStep('connecting')
 
