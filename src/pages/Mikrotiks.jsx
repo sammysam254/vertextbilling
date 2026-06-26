@@ -19,6 +19,26 @@ export default function Mikrotiks() {
   const [lastSeen, setLastSeen] = useState(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [checkingState, setCheckingState] = useState(false)
+
+  const handleCheckState = async () => {
+    if (!configId) return
+    setCheckingState(true)
+    try {
+      const { data } = await supabase
+        .from('mikrotik_configs')
+        .select('last_seen')
+        .eq('id', configId)
+        .limit(1)
+      if (data && data.length > 0) {
+        setLastSeen(data[0].last_seen)
+      }
+    } catch (err) {
+      console.error('Error checking state:', err)
+    } finally {
+      setTimeout(() => setCheckingState(false), 600)
+    }
+  }
 
   const [config, setConfig] = useState({
     interfaceName: 'ether2',
@@ -75,10 +95,45 @@ export default function Mikrotiks() {
           user_id: mt.user_id || user.id,
         })
       } else {
-        setConfig(prev => ({
-          ...prev,
+        // Automatically create a default MikroTik configuration row for the user!
+        const defaultPayload = {
+          name: 'Vertex-Hotspot',
+          host: '192.168.88.1',
+          port: 8728,
+          username: 'billing-api',
+          password: 'StrongP@ss123!',
+          api_port: 8728,
+          interface_name: 'ether2',
+          network_cidr: '192.168.88.0/24',
+          dns_server: '8.8.8.8',
+          billing_url: window.location.origin,
+          active: true,
           user_id: user.id
-        }))
+        }
+        
+        const { data: newConfig, error: insertError } = await supabase
+          .from('mikrotik_configs')
+          .insert(defaultPayload)
+          .select()
+
+        if (!insertError && newConfig && newConfig.length > 0) {
+          const mt = newConfig[0]
+          setConfigId(mt.id)
+          setLastSeen(mt.last_seen)
+          setConfig({
+            interfaceName: mt.interface_name,
+            hotspotGateway: mt.host,
+            hotspotNetwork: mt.network_cidr,
+            dnsServer: mt.dns_server,
+            hotspotName: mt.name,
+            billingServerUrl: mt.billing_url,
+            apiUsername: mt.username,
+            apiPassword: mt.password,
+            supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
+            supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+            user_id: mt.user_id,
+          })
+        }
       }
     } catch (err) {
       console.error('Error fetching MikroTik config:', err)
@@ -246,11 +301,27 @@ export default function Mikrotiks() {
             }
           </div>
         </div>
-        {isOnline && (
-          <span style={{ fontSize: 11, fontWeight: 600, color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: 4 }}>
-            Connected
-          </span>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button 
+            className="btn btn-secondary btn-sm" 
+            onClick={handleCheckState} 
+            disabled={checkingState || !configId}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+          >
+            <RefreshCw 
+              size={12} 
+              style={{ 
+                animation: checkingState ? 'spin 1s linear infinite' : 'none' 
+              }} 
+            />
+            {checkingState ? 'Checking...' : 'Check State'}
+          </button>
+          {isOnline && (
+            <span style={{ fontSize: 11, fontWeight: 600, color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '5px 8px', borderRadius: 4 }}>
+              Connected
+            </span>
+          )}
+        </div>
       </div>
 
       {/* How to use banner */}
