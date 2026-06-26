@@ -167,14 +167,16 @@ CREATE POLICY "sessions_public_insert" ON hotspot_sessions FOR INSERT WITH CHECK
 DROP POLICY IF EXISTS "sessions_public_read" ON hotspot_sessions;
 CREATE POLICY "sessions_public_read"   ON hotspot_sessions FOR SELECT USING (TRUE);
 DROP POLICY IF EXISTS "sessions_admin_update" ON hotspot_sessions;
+DROP POLICY IF EXISTS "sessions_admin_all" ON hotspot_sessions;
 CREATE POLICY "sessions_admin_update"  ON hotspot_sessions FOR UPDATE USING (auth.role() = 'authenticated');
 
 -- Payments: public insert (portal creates payments), admin all
 DROP POLICY IF EXISTS "payments_public_insert" ON payments;
 CREATE POLICY "payments_public_insert" ON payments FOR INSERT WITH CHECK (TRUE);
 DROP POLICY IF EXISTS "payments_admin_read" ON payments;
-CREATE POLICY "payments_admin_read"    ON payments FOR SELECT USING (auth.role() = 'authenticated');
 DROP POLICY IF EXISTS "payments_admin_update" ON payments;
+DROP POLICY IF EXISTS "payments_admin_all" ON payments;
+CREATE POLICY "payments_admin_read"    ON payments FOR SELECT USING (auth.role() = 'authenticated');
 CREATE POLICY "payments_admin_update"  ON payments FOR UPDATE USING (auth.role() = 'authenticated');
 
 -- Customers: public insert + select (for phone lookup), admin all
@@ -237,11 +239,13 @@ CREATE POLICY "plans_admin_all" ON plans FOR ALL USING (auth.uid() = user_id) WI
 
 -- Sessions: public insert, owner read/write
 DROP POLICY IF EXISTS "sessions_admin_update" ON hotspot_sessions;
+DROP POLICY IF EXISTS "sessions_admin_all" ON hotspot_sessions;
 CREATE POLICY "sessions_admin_all" ON hotspot_sessions FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Payments: public insert, owner read/write
 DROP POLICY IF EXISTS "payments_admin_read" ON payments;
 DROP POLICY IF EXISTS "payments_admin_update" ON payments;
+DROP POLICY IF EXISTS "payments_admin_all" ON payments;
 CREATE POLICY "payments_admin_all" ON payments FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- Customers: public insert + select, owner read/write
