@@ -230,27 +230,27 @@ export function generateApiLoginTriggerScript(config = {}) {
   } = config
 
   return `# =============================================================
-# Vertex Billing – API Login Trigger Script
-# Polls Supabase every 2 seconds for pending activations
-# Schedule this as a recurring script in MikroTik Scheduler
+# Vertex Billing – API Login Trigger Setup Script
+# Run this in MikroTik Terminal (Winbox > New Terminal)
+# This automatically configures the script and schedules it to run every 2s
 # =============================================================
 
-# Add to scheduler:
-# /system scheduler add name=billing-trigger interval=00:00:02 \\
-#   on-event="/system script run billing-trigger"
-
-:global billingUrl "${supabaseUrl}/functions/v1/mikrotik-trigger"
-:global billingKey "${supabaseAnonKey}"
-
+# 1. Create the API trigger script
+/system script remove [find name=billing-trigger]
+/system script add name=billing-trigger source=":global billingUrl \\"${supabaseUrl}/functions/v1/mikrotik-trigger\\"
+:global billingKey \\"${supabaseAnonKey}\\"
 :do {
-  /tool fetch url=($billingUrl) \\
-    http-method=get \\
-    http-header-field="Authorization: Bearer $billingKey" \\
-    output=none \\
-    as-value
+  /tool fetch url=(\\\$billingUrl) check-certificate=no http-method=get http-header-field=\\"Authorization: Bearer \\\$billingKey\\" output=none as-value
 } on-error={
-  :log error "Billing trigger failed - check network"
-}
+  :log error \\"Billing trigger failed - check network\\"
+}"
+
+# 2. Schedule the script to run every 2 seconds
+/system scheduler remove [find name=billing-trigger-scheduler]
+/system scheduler add name=billing-trigger-scheduler interval=2s on-event="/system script run billing-trigger"
+
+:log info "Vertex Billing API Login Trigger setup complete!"
+:put "Setup complete! Script 'billing-trigger' and Scheduler 'billing-trigger-scheduler' created."
 `
 }
 
