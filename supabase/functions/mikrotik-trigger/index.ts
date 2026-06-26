@@ -158,22 +158,28 @@ serve(async (req) => {
     }
 
     // 5. Update session and payment status in Supabase
-    await supabase
-      .from('hotspot_sessions')
-      .update({
-        status: mikrotikSuccess ? 'active' : 'active', // mark active regardless, router will enforce
-        mikrotik_user: username,
-      })
-      .eq('id', sessionId)
+    const sessionUpdate: any = {
+      status: mikrotikSuccess ? 'active' : 'pending',
+    }
+    if (mikrotikSuccess) {
+      sessionUpdate.mikrotik_user = username
+    }
 
     await supabase
-      .from('payments')
-      .update({ status: 'confirmed' })
-      .eq('id', paymentId)
+      .from('hotspot_sessions')
+      .update(sessionUpdate)
+      .eq('id', sessionId)
+
+    if (mikrotikSuccess) {
+      await supabase
+        .from('payments')
+        .update({ status: 'confirmed' })
+        .eq('id', paymentId)
+    }
 
     // 6. Send notification
     await supabase.from('notifications').insert({
-      message: `New client connected – MAC: ${macAddress} | Plan: ${planName} | ${mikrotikSuccess ? 'MikroTik login OK' : 'Manual activation'}`,
+      message: `New client connected – MAC: ${macAddress} | Plan: ${planName} | ${mikrotikSuccess ? 'MikroTik login OK' : 'Cloud connection failed, falling back to router poller'}`,
       type: mikrotikSuccess ? 'success' : 'warning',
     })
 

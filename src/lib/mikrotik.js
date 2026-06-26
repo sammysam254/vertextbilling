@@ -225,6 +225,7 @@ ${lines}
  */
 export function generateApiLoginTriggerScript(config = {}) {
   const {
+    id = 'ROUTER_ID',
     supabaseUrl = 'https://your-project.supabase.co',
     supabaseAnonKey = 'your-anon-key',
   } = config
@@ -237,10 +238,11 @@ export function generateApiLoginTriggerScript(config = {}) {
 
 # 1. Create the API trigger script
 /system script remove [find name=billing-trigger]
-/system script add name=billing-trigger source=":global billingUrl \\"${supabaseUrl}/functions/v1/mikrotik-trigger\\"
-:global billingKey \\"${supabaseAnonKey}\\"
-:do {
-  /tool fetch url=(\\\$billingUrl) check-certificate=no http-method=get http-header-field=\\"Authorization: Bearer \\\$billingKey\\" output=none as-value
+/system script add name=billing-trigger source=":do {
+  /tool fetch url=\\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\\" check-certificate=no \\
+    http-method=get \\
+    http-header-field=\\"Authorization: Bearer ${supabaseAnonKey}\\" \\
+    output=none as-value
 } on-error={
   :log error \\"Billing trigger failed - check network\\"
 }"
@@ -413,8 +415,8 @@ ${profileLines}
 /system script add name=billing-trigger source=":do {
   /tool fetch url=\\"${supabaseUrl}/rest/v1/rpc/checkin_router\\" check-certificate=no \\
     http-method=post \\
-    http-header-field=\\"apikey: ${supabaseAnonKey},Authorization: Bearer ${supabaseAnonKey},Content-Type: application/json,Accept: text/plain\\" \\
-    http-data=\\"{\\\\\\"router_id\\\\\\":\\\\\\"${id}\\\\\\"}\\" \\
+    http-header-field=\\"apikey: ${supabaseAnonKey},Authorization: Bearer ${supabaseAnonKey},Content-Type: application/x-www-form-urlencoded,Accept: text/plain\\" \\
+    http-data=\\"router_id=${id}\\" \\
     keep-result=yes \\
     dst-path=\\"action.rsc\\"
 
