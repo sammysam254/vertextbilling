@@ -91,15 +91,20 @@ CREATE TABLE IF NOT EXISTS coupons (
 
 -- ─── MIKROTIK CONFIGS ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS mikrotik_configs (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name        TEXT NOT NULL DEFAULT 'Main Router',
-  host        TEXT NOT NULL,
-  port        INTEGER NOT NULL DEFAULT 8728,
-  username    TEXT NOT NULL DEFAULT 'billing-api',
-  password    TEXT NOT NULL,
-  api_port    INTEGER NOT NULL DEFAULT 8728,
-  active      BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  name            TEXT NOT NULL DEFAULT 'Vertex-Hotspot',
+  host            TEXT NOT NULL DEFAULT '192.168.88.1',
+  port            INTEGER NOT NULL DEFAULT 8728,
+  username        TEXT NOT NULL DEFAULT 'billing-api',
+  password        TEXT NOT NULL DEFAULT 'StrongP@ss123!',
+  api_port        INTEGER NOT NULL DEFAULT 8728,
+  interface_name  TEXT NOT NULL DEFAULT 'ether2',
+  network_cidr    TEXT NOT NULL DEFAULT '192.168.88.0/24',
+  dns_server      TEXT NOT NULL DEFAULT '8.8.8.8',
+  billing_url     TEXT,
+  active          BOOLEAN NOT NULL DEFAULT TRUE,
+  last_seen       TIMESTAMPTZ,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ─── NOTIFICATIONS ──────────────────────────────────────────────
@@ -189,3 +194,10 @@ VALUES
   ('Monthly',  '30 day internet access',    500,  720, 5120, 10240, NULL, 'hotspot'),
   ('PPPoE Basic', 'Basic home internet',    1000, 720, 5120, 10240, NULL, 'pppoe')
 ON CONFLICT DO NOTHING;
+
+-- Ensure last_seen and other columns exist on existing installations
+ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS last_seen TIMESTAMPTZ;
+ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS interface_name TEXT DEFAULT 'ether2';
+ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS network_cidr TEXT DEFAULT '192.168.88.0/24';
+ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS dns_server TEXT DEFAULT '8.8.8.8';
+ALTER TABLE mikrotik_configs ADD COLUMN IF NOT EXISTS billing_url TEXT;

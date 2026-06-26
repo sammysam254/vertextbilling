@@ -1,50 +1,146 @@
 import React, { useState, useEffect } from 'react'
-import { Copy, Download, Router, Plus, RefreshCw, CheckCircle, Terminal } from 'lucide-react'
+import { Copy, Download, Router, RefreshCw, CheckCircle, Terminal } from 'lucide-react'
 import Modal from '../components/Modal'
 import {
-  generateHotspotSetupScript,
-  generateApiUserScript,
+  generateUnifiedSetupScript,
   generatePlanProfilesScript,
-  generateApiLoginTriggerScript,
-  generateRemoveUserScript,
 } from '../lib/mikrotik'
 import { supabase } from '../lib/supabase'
 
 const SCRIPTS = [
-  { id: 'setup',    label: '1. Initial Hotspot Setup', desc: 'Configure hotspot server, DHCP, DNS and NAT' },
-  { id: 'api-user', label: '2. Create API User',       desc: 'Create billing system API user with limited permissions' },
-  { id: 'plans',    label: '3. Sync Plan Profiles',    desc: 'Add user profiles matching your plans' },
-  { id: 'trigger',  label: '4. API Login Trigger',     desc: 'Scheduler script for <1s client activation' },
+  { id: 'unified', label: '1. Unified Setup Script', desc: 'Paste this single script in Winbox to configure everything' },
+  { id: 'plans',    label: '2. Sync Plans (Optional)', desc: 'Run this script to sync or update plans on the router' },
 ]
 
 export default function Mikrotiks() {
   const [plans, setPlans] = useState([])
-  const [activeScript, setActiveScript] = useState('setup')
+  const [activeScript, setActiveScript] = useState('unified')
+  const [configId, setConfigId] = useState(null)
+  const [lastSeen, setLastSeen] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
   const [config, setConfig] = useState({
     interfaceName: 'ether2',
     hotspotGateway: '192.168.88.1',
     hotspotNetwork: '192.168.88.0/24',
     dnsServer: '8.8.8.8',
     hotspotName: 'Vertex-Hotspot',
-    billingServerUrl: 'http://192.168.88.1:3000',
+    billingServerUrl: window.location.origin,
     apiUsername: 'billing-api',
     apiPassword: 'StrongP@ss123!',
     supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
     supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
   })
+
   const [modal, setModal] = useState(false)
   const [copied, setCopied] = useState(false)
 
+  const fetchConfigAndPlans = async () => {
+    setLoading(true)
+    try {
+      // 1. Fetch plans
+      const { data: plansData } = await supabase.from('plans').select('*')
+      setPlans(plansData || [])
+
+      // 2. Fetch active MikroTik config
+      const { data: configData } = await supabase
+        .from('mikrotik_configs')
+        .select('*')
+        .eq('active', true)
+        .limit(1)
+
+      if (configData && configData.length > 0) {
+        const mt = configData[0]
+        setConfigId(mt.id)
+        setLastSeen(mt.last_seen)
+        setConfig({
+          interfaceName: mt.interface_name || 'ether2',
+          hotspotGateway: mt.host || '192.168.88.1',
+          hotspotNetwork: mt.network_cidr || '192.168.88.0/24',
+          dnsServer: mt.dns_server || '8.8.8.8',
+          hotspotName: mt.name || 'Vertex-Hotspot',
+          billingServerUrl: mt.billing_url || window.location.origin,
+          apiUsername: mt.username || 'billing-api',
+          apiPassword: mt.password || 'StrongP@ss123!',
+          supabaseUrl: import.meta.env.VITE_SUPABASE_URL || '',
+          supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY || '',
+        })
+      }
+    } catch (err) {
+      console.error('Error fetching MikroTik config:', err)
+    } finally {
+      setLoading(false)
+    }
+  }
+
   useEffect(() => {
-    supabase.from('plans').select('*').then(({ data }) => setPlans(data || []))
-  }, [])
+    fetchConfigAndPlans()
+
+    // Poll router status every 5 seconds
+    const interval = setInterval(async () => {
+      const { data } = await supabase
+        .from('mikrotik_configs')
+        .select('last_seen')
+        .eq('active', true)
+        .limit(1)
+      if (data && data.length > 0) {
+        setLastSeen(data[0].last_seen)
+      }
+    }, 5000)
+
+    return () => clearInterval(interval)
+  }, [configId])
+
+  const handleApplyConfig = async () => {
+    setSaving(true)
+    try {
+      const payload = {
+        name: config.hotspotName,
+        host: config.hotspotGateway,
+        port: 8728,
+        username: config.apiUsername,
+        password: config.apiPassword,
+        api_port: 8728,
+        interface_name: config.interfaceName,
+        network_cidr: config.hotspotNetwork,
+        dns_server: config.dnsServer,
+        billing_url: config.billingServerUrl,
+        active: true,
+      }
+
+      let res
+      if (configId) {
+        res = await supabase
+          .from('mikrotik_configs')
+          .update(payload)
+          .eq('id', configId)
+      } else {
+        res = await supabase
+          .from('mikrotik_configs')
+          .insert(payload)
+          .select('id')
+      }
+
+      if (res.error) throw res.error
+
+      if (!configId && res.data && res.data.length > 0) {
+        setConfigId(res.data[0].id)
+      }
+
+      setModal(false)
+      fetchConfigAndPlans()
+    } catch (err) {
+      alert('Error saving config: ' + err.message)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   function getScript() {
     switch (activeScript) {
-      case 'setup':    return generateHotspotSetupScript(config)
-      case 'api-user': return generateApiUserScript(config)
+      case 'unified':  return generateUnifiedSetupScript(config, plans)
       case 'plans':    return generatePlanProfilesScript(plans)
-      case 'trigger':  return generateApiLoginTriggerScript(config)
       default:         return '# Select a script above'
     }
   }
@@ -93,16 +189,49 @@ export default function Mikrotiks() {
 
   const currentScriptInfo = SCRIPTS.find(s => s.id === activeScript)
 
+  // Calculate online status (if checked in within 12 seconds)
+  const isOnline = lastSeen ? (new Date() - new Date(lastSeen)) < 12000 : false
+
   return (
     <div>
       <div className="page-header">
         <div>
           <h1 className="page-title">MikroTik Configuration</h1>
-          <p className="page-subtitle">Generate RouterOS scripts to configure your MikroTik router</p>
+          <p className="page-subtitle">Configure your MikroTik router and check its connection state</p>
         </div>
         <button className="btn btn-secondary" onClick={() => setModal(true)} id="btn-edit-mikrotik-config">
           <Router size={14} /> Edit Config
         </button>
+      </div>
+
+      {/* MikroTik Status Bar */}
+      <div style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: 12,
+        background: isOnline ? 'rgba(16,185,129,0.06)' : 'rgba(107,114,128,0.06)',
+        border: `1px solid ${isOnline ? 'rgba(16,185,129,0.15)' : 'rgba(107,114,128,0.15)'}`,
+        borderRadius: 10,
+        padding: '12px 16px',
+        marginBottom: 20,
+      }}>
+        <div className={`status-dot ${isOnline ? 'online' : 'offline'}`} style={{ width: 10, height: 10 }} />
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: isOnline ? '#10b981' : 'var(--text-secondary)' }}>
+            MikroTik Router State: {isOnline ? 'ONLINE' : 'OFFLINE'}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+            {lastSeen 
+              ? `Last heartbeat received: ${new Date(lastSeen).toLocaleTimeString()} (${Math.round((new Date() - new Date(lastSeen)) / 1000)}s ago)`
+              : 'No heartbeat received yet. Please run the setup script on your router.'
+            }
+          </div>
+        </div>
+        {isOnline && (
+          <span style={{ fontSize: 11, fontWeight: 600, color: '#10b981', background: 'rgba(16,185,129,0.1)', padding: '2px 8px', borderRadius: 4 }}>
+            Connected
+          </span>
+        )}
       </div>
 
       {/* How to use banner */}
@@ -118,11 +247,12 @@ export default function Mikrotiks() {
       }}>
         <Terminal size={20} style={{ color: 'var(--teal-400)', flexShrink: 0, marginTop: 1 }} />
         <div>
-          <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal-300)', marginBottom: 4 }}>How to use these scripts</p>
+          <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal-300)', marginBottom: 4 }}>How to connect your router</p>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
-            Open <strong>Winbox → New Terminal</strong> and paste each script in order (1 → 4).
-            Run scripts <strong>one at a time</strong>. After step 4, your billing system will connect clients
-            within <strong>1 second</strong> of payment confirmation via the Supabase Edge Function.
+            1. Click <strong>Edit Config</strong> above to make sure the router interface and billing URL match your network.<br />
+            2. Copy the <strong>Unified Setup Script</strong> below.<br />
+            3. Open <strong>Winbox → New Terminal</strong>, paste the script, and press Enter.<br />
+            4. Once run, the router will configure the network, sync your plans, and show <strong>ONLINE</strong> above within 5 seconds.
           </p>
         </div>
       </div>
@@ -158,7 +288,7 @@ export default function Mikrotiks() {
           }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#8b5cf6', marginBottom: 4 }}>⚡ &lt;1 Second Connect</div>
             <div style={{ fontSize: 11, color: 'var(--text-muted)', lineHeight: 1.5 }}>
-              After payment confirmed → Supabase Edge Function → MikroTik REST API → client connected instantly
+              The poller checks Supabase for logins. When a user pays, they connect immediately.
             </div>
           </div>
         </div>
@@ -196,18 +326,20 @@ export default function Mikrotiks() {
         footer={
           <>
             <button className="btn btn-secondary" onClick={() => setModal(false)}>Close</button>
-            <button className="btn btn-primary" onClick={() => setModal(false)}>Apply</button>
+            <button className="btn btn-primary" onClick={handleApplyConfig} disabled={saving}>
+              {saving ? 'Saving...' : 'Apply & Save'}
+            </button>
           </>
         }
       >
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {[
             ['interfaceName',    'Hotspot Interface', 'ether2'],
-            ['hotspotGateway',   'Gateway IP',        '192.168.88.1'],
+            ['hotspotGateway',   'Gateway IP (Router IP)', '192.168.88.1'],
             ['hotspotNetwork',   'Network CIDR',      '192.168.88.0/24'],
             ['dnsServer',        'DNS Server',        '8.8.8.8'],
             ['hotspotName',      'Hotspot Name',      'Vertex-Hotspot'],
-            ['billingServerUrl', 'Billing Server URL', 'http://192.168.88.1:3000'],
+            ['billingServerUrl', 'Billing Server URL', window.location.origin],
             ['apiUsername',      'API Username',      'billing-api'],
             ['apiPassword',      'API Password',      '••••••••'],
           ].map(([key, label, placeholder]) => (
