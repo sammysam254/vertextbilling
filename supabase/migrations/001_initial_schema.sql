@@ -269,9 +269,10 @@ DROP POLICY IF EXISTS "notifs_admin_all" ON notifications;
 CREATE POLICY "notifs_admin_all" ON notifications FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 
 -- ─── CHECKIN ROUTER RPC (NO EDGE FUNCTION SOLUTION) ───────────────
-CREATE OR REPLACE FUNCTION checkin_router(router_id UUID)
+CREATE OR REPLACE FUNCTION checkin_router(router_id TEXT)
 RETURNS TEXT AS $$
 DECLARE
+  router_uuid UUID;
   sess RECORD;
   plan_rec RECORD;
   commands TEXT := '';
@@ -279,16 +280,23 @@ DECLARE
   password TEXT;
   session_timeout TEXT;
 BEGIN
+  -- Safe casting to UUID to prevent crashes if a placeholder is sent
+  BEGIN
+    router_uuid := router_id::UUID;
+  EXCEPTION WHEN OTHERS THEN
+    RETURN '# Error: Invalid router ID format (' || COALESCE(router_id, 'null') || '). Ensure your script is configured with a valid UUID.';
+  END;
+
   -- 1. Update heartbeat
   UPDATE mikrotik_configs
   SET last_seen = NOW()
-  WHERE id = router_id;
+  WHERE id = router_uuid;
 
   -- 2. Find pending sessions for this router's owner
   FOR sess IN 
     SELECT s.*, c.user_id as owner_id 
     FROM hotspot_sessions s
-    JOIN mikrotik_configs c ON c.id = router_id
+    JOIN mikrotik_configs c ON c.id = router_uuid
     WHERE s.status = 'pending' AND s.user_id = c.user_id
   LOOP
     -- Fetch plan details
@@ -321,4 +329,4 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
-GRANT EXECUTE ON FUNCTION checkin_router(UUID) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION checkin_router(TEXT) TO anon, authenticated;
