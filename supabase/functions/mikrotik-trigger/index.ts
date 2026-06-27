@@ -26,7 +26,15 @@ serve(async (req) => {
   if (req.method === 'GET') {
     try {
       const url = new URL(req.url)
-      const routerId = url.searchParams.get('router')
+      let routerId = url.searchParams.get('router')
+      
+      if (!routerId) {
+        const pathParts = url.pathname.split('/')
+        const lastPart = pathParts[pathParts.length - 1]
+        if (lastPart && lastPart.length === 36 && lastPart.includes('-')) {
+          routerId = lastPart
+        }
+      }
 
       if (!routerId || routerId === 'ROUTER_ID') {
         return new Response(
