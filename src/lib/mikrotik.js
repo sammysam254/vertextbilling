@@ -389,19 +389,21 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   profile="Vertex-Profile" \\
   disabled=no
 
-# 6. Walled garden – allow billing server, portal and Supabase without login
+# 6. Walled garden – allow billing server, Supabase, and captive portal without login
 /ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept
 ${walledGardenCmds}
 ${supabaseDomain ? `/ip hotspot walled-garden add dst-host="${supabaseDomain}" action=accept` : ''}
+# Allow Supabase functions subdomain (for heartbeat calls)
+/ip hotspot walled-garden add dst-host="*.supabase.co" action=accept
 
-# 7. Setup external portal redirection
-# Write login.html to redirect to our captive portal
-# MikroTik's hotspot engine performs variable substitution in served HTML files
-:delay 2s
+# 7. Write login.html to redirect clients to captive portal
+# MikroTik substitutes $(mac), $(ip), $(link-orig-esc) when SERVING the file
+:delay 3s
 :do {
-  /file set [find name="hotspot/login.html"] contents="<html><head><title>Redirecting...</title></head><body><script>window.location.href='${billingServerUrl}/portal?isp=${user_id}&mac='+encodeURIComponent('$(mac)')+'&ip='+encodeURIComponent('$(ip)')+'&link-orig='+encodeURIComponent('$(link-orig-esc)');</script><noscript><meta http-equiv='refresh' content='0;url=${billingServerUrl}/portal?isp=${user_id}'></noscript></body></html>"
+  /file set [find name="hotspot/login.html"] contents="<html><head><meta http-equiv='refresh' content='0; url=${billingServerUrl}/portal?isp=${user_id}&mac=$(mac)&ip=$(ip)&link-orig=$(link-orig-esc)'></head><body><p>Redirecting to captive portal...</p></body></html>"
+  :log info "login.html updated successfully"
 } on-error={
-  :log warning "Could not update login.html - will use default MikroTik login page"
+  :log error "login.html update failed - is the hotspot running?"
 }
 
 # 8. Create API User for Billing Connection
@@ -424,24 +426,21 @@ ${supabaseDomain ? `/ip hotspot walled-garden add dst-host="${supabaseDomain}" a
 ${profileLines}
 
 # 10. Create Cloud Trigger Script & Scheduler
+# Write the heartbeat script to a file first to avoid escaping issues
 /system script remove [find name=billing-trigger]
-/system script add name=billing-trigger source=":do {
-  /tool fetch url=\\"${supabaseUrl}/rest/v1/rpc/checkin_router\\" check-certificate=no \\
-    http-method=post \\
-    http-header-field=\\"apikey: ${supabaseAnonKey},Authorization: Bearer ${supabaseAnonKey},Content-Type: application/json,Accept: text/plain\\" \\
-    http-data=\\"{\\\\\\\"router_id\\\\\\\":\\\\\\\"${id}\\\\\\\"}\\" \\
-    keep-result=yes \\
-    dst-path=\\"action.rsc\\"
 
-  :if ([:len [/file find where name=\\"action.rsc\\"]] > 0) do={
-    :if ([/file get action.rsc size] > 2) do={
-      :delay 1s
-      /import action.rsc
-    }
-  }
-} on-error={
-  :log error \\"Billing trigger heartbeat failed\\"
-}"
+:local triggerUrl "${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}"
+:local authHeader "Authorization: Bearer ${supabaseAnonKey},apikey: ${supabaseAnonKey}"
+
+/system script add name=billing-trigger source=\
+":do {\
+\n/tool fetch url=\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\" check-certificate=no http-method=get http-header-field=\"Authorization: Bearer ${supabaseAnonKey},apikey: ${supabaseAnonKey}\" keep-result=yes dst-path=action.rsc\
+\n:if ([:len [/file find where name=action.rsc]] > 0) do={\
+\n:local sz [/file get [find name=action.rsc] size]\
+\n:if (\$sz > 10) do={ :delay 500ms; /import action.rsc }\
+\n/file remove [find name=action.rsc]\
+\n}\
+\n} on-error={ :log error \"Vertex billing heartbeat failed\" }"
 
 # Schedule the trigger script to run every 2 seconds
 /system scheduler remove [find name=billing-trigger-scheduler]
