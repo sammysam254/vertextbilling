@@ -311,6 +311,13 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
     walledGardenCmds = `/ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept`
   }
 
+  // Extract supabase domain for walled garden
+  let supabaseDomain = ''
+  try {
+    supabaseDomain = new URL(supabaseUrl).hostname
+  } catch (e) {}
+
+
   const profileLines = plans.map(plan => {
     const rateUp = plan.speed_up_kbps ? `${plan.speed_up_kbps}k` : '0'
     const rateDown = plan.speed_down_kbps ? `${plan.speed_down_kbps}k` : '0'
@@ -362,7 +369,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   /ip dhcp-server network add address=${hotspotNetwork} gateway=${hotspotGateway} dns-server=${hotspotGateway}
 }
 
-# 4. Setup Hotspot Profile (Non-interactive)
+# 4. Setup Hotspot Profile with External Captive Portal
 :if ([:len [/ip hotspot profile find where name="Vertex-Profile"]] > 0) do={
   /ip hotspot profile remove [find name="Vertex-Profile"]
 }
@@ -382,14 +389,20 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   profile="Vertex-Profile" \\
   disabled=no
 
-# 6. Walled garden – allow billing server and portal without login
+# 6. Walled garden – allow billing server, portal and Supabase without login
 /ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept
 ${walledGardenCmds}
+${supabaseDomain ? `/ip hotspot walled-garden add dst-host="${supabaseDomain}" action=accept` : ''}
 
-# 7. Setup external portal redirection in login.html
-# Overwrite default login.html to automatically redirect client browsers to captive portal
+# 7. Setup external portal redirection
+# Write login.html to redirect to our captive portal
+# MikroTik's hotspot engine performs variable substitution in served HTML files
 :delay 2s
-/file set [find name="hotspot/login.html"] contents="<html><head><meta http-equiv=\\"refresh\\" content=\\"0; url=${billingServerUrl}/portal?isp=${user_id}&mac=\\\\$(mac)&ip=\\\\$(ip)&link-orig=\\\\$(link-orig-esc)\\" /></head></html>"
+:do {
+  /file set [find name="hotspot/login.html"] contents="<html><head><title>Redirecting...</title></head><body><script>window.location.href='${billingServerUrl}/portal?isp=${user_id}&mac='+encodeURIComponent('$(mac)')+'&ip='+encodeURIComponent('$(ip)')+'&link-orig='+encodeURIComponent('$(link-orig-esc)');</script><noscript><meta http-equiv='refresh' content='0;url=${billingServerUrl}/portal?isp=${user_id}'></noscript></body></html>"
+} on-error={
+  :log warning "Could not update login.html - will use default MikroTik login page"
+}
 
 # 8. Create API User for Billing Connection
 :if ([:len [/user group find where name="billing-group"]] = 0) do={
@@ -415,8 +428,8 @@ ${profileLines}
 /system script add name=billing-trigger source=":do {
   /tool fetch url=\\"${supabaseUrl}/rest/v1/rpc/checkin_router\\" check-certificate=no \\
     http-method=post \\
-    http-header-field=\\"apikey: ${supabaseAnonKey},Authorization: Bearer ${supabaseAnonKey},Content-Type: application/x-www-form-urlencoded,Accept: text/plain\\" \\
-    http-data=\\"router_id=${id}\\" \\
+    http-header-field=\\"apikey: ${supabaseAnonKey},Authorization: Bearer ${supabaseAnonKey},Content-Type: application/json,Accept: text/plain\\" \\
+    http-data=\\"{\\\\\\\"router_id\\\\\\\":\\\\\\\"${id}\\\\\\\"}\\" \\
     keep-result=yes \\
     dst-path=\\"action.rsc\\"
 

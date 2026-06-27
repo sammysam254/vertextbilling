@@ -264,7 +264,7 @@ export default function Mikrotiks() {
   const currentScriptInfo = SCRIPTS.find(s => s.id === activeScript)
 
   // Calculate online status (if checked in within 12 seconds)
-  const isOnline = lastSeen ? (new Date() - new Date(lastSeen)) < 12000 : false
+  const isOnline = lastSeen ? (new Date() - new Date(lastSeen)) < 30000 : false
 
   return (
     <div>
