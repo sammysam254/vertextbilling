@@ -273,7 +273,25 @@ export default function Mikrotiks() {
           <h1 className="page-title">MikroTik Configuration</h1>
           <p className="page-subtitle">Configure your MikroTik router and check its connection state</p>
         </div>
-        <button className="btn btn-secondary" onClick={() => setModal(true)} id="btn-edit-mikrotik-config">
+        <button 
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 6,
+            padding: '8px 14px',
+            background: 'var(--teal-500)',
+            color: '#ffffff',
+            border: 'none',
+            borderRadius: 8,
+            fontSize: 13,
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 2px 8px rgba(0,184,144,0.25)',
+            transition: 'background 0.2s',
+          }} 
+          onClick={() => setModal(true)} 
+          id="btn-edit-mikrotik-config"
+        >
           <Router size={14} /> Edit Config
         </button>
       </div>
@@ -303,10 +321,23 @@ export default function Mikrotiks() {
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button 
-            className="btn btn-secondary btn-sm" 
             onClick={handleCheckState} 
             disabled={checkingState || !configId}
-            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            style={{ 
+              display: 'inline-flex', 
+              alignItems: 'center', 
+              gap: 6,
+              padding: '6px 12px',
+              background: 'var(--teal-500)',
+              color: '#ffffff',
+              border: 'none',
+              borderRadius: 6,
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 2px 8px rgba(0,184,144,0.2)',
+              opacity: (checkingState || !configId) ? 0.6 : 1,
+            }}
           >
             <RefreshCw 
               size={12} 
@@ -392,11 +423,46 @@ export default function Mikrotiks() {
               <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{currentScriptInfo?.desc}</p>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn btn-secondary btn-sm" onClick={copyScript} id={`btn-copy-${activeScript}`}>
-                {copied ? <CheckCircle size={12} style={{ color: 'var(--teal-400)' }} /> : <Copy size={12} />}
-                {copied ? 'Copied!' : 'Copy'}
+              <button 
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  background: 'var(--teal-500)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(0,184,144,0.2)',
+                  transition: 'background 0.2s',
+                }}
+                onClick={copyScript} 
+                id={`btn-copy-${activeScript}`}
+              >
+                {copied ? <CheckCircle size={12} style={{ color: '#ffffff' }} /> : <Copy size={12} />}
+                {copied ? 'Copied!' : 'Copy Script'}
               </button>
-              <button className="btn btn-secondary btn-sm" onClick={downloadScript}>
+              <button 
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  padding: '6px 12px',
+                  background: 'var(--teal-500)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 6,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  boxShadow: '0 2px 8px rgba(0,184,144,0.2)',
+                  transition: 'background 0.2s',
+                }}
+                onClick={downloadScript}
+              >
                 <Download size={12} /> Download .rsc
               </button>
             </div>
