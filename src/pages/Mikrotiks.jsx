@@ -257,7 +257,7 @@ export default function Mikrotiks() {
     const blob = new Blob([getScript()], { type: 'text/plain' })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(blob)
-    a.download = `vertex-${activeScript}.rsc`
+    a.download = activeScript === 'unified' ? 'vertex.rsc' : 'plans.rsc'
     a.click()
   }
 
@@ -340,9 +340,10 @@ export default function Mikrotiks() {
           <p style={{ fontSize: 13, fontWeight: 700, color: 'var(--teal-300)', marginBottom: 4 }}>How to connect your router</p>
           <p style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
             1. Click <strong>Edit Config</strong> above to make sure the router interface and billing URL match your network.<br />
-            2. Copy the <strong>Unified Setup Script</strong> below.<br />
-            3. Open <strong>Winbox → New Terminal</strong>, paste the script, and press Enter.<br />
-            4. Once run, the router will configure the network, sync your plans, and show <strong>ONLINE</strong> above within 5 seconds.
+            2. Click <strong>Download .rsc</strong> on the right to download <strong>vertex.rsc</strong>.<br />
+            3. Open <strong>Winbox</strong> ➔ click <strong>Files</strong> on the left menu ➔ <strong>drag and drop</strong> the downloaded <strong>vertex.rsc</strong> file into the list.<br />
+            4. Open <strong>Winbox ➔ New Terminal</strong>, run: <code>/import file-name=vertex.rsc</code> and press Enter.<br />
+            5. Once imported, the router will configure the network bridge, sync your plans, and show <strong>ONLINE</strong> within 5 seconds!
           </p>
         </div>
       </div>

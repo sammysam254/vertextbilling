@@ -3,7 +3,7 @@
  * Generates .rsc scripts based on system configuration
  */
 
-// ─── Helper scripts (small utilities) ─────────────────────────────────────────
+// --- Helper scripts (small utilities) -----------------------------------------
 
 export function generatePlanProfilesScript(plans = []) {
   if (!plans.length) {
@@ -59,7 +59,7 @@ export function generateRemoveUserScript(username = '') {
 `
 }
 
-// ─── Main Unified Setup Script ────────────────────────────────────────────────
+// --- Main Unified Setup Script ------------------------------------------------
 
 export function generateUnifiedSetupScript(config = {}, plans = []) {
   const {
@@ -77,7 +77,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
     user_id        = 'USER_ID',
   } = config
 
-  // ── Walled-garden for billing portal ──────────────────────────────────────
+  // -- Walled-garden for billing portal --------------------------------------
   let walledGardenCmd = ''
   try {
     const u = new URL(billingServerUrl)
@@ -90,7 +90,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
     walledGardenCmd = `/ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept`
   }
 
-  // ── Plan profiles ──────────────────────────────────────────────────────────
+  // -- Plan profiles ----------------------------------------------------------
   const profileLines = plans.map(plan => {
     const up   = plan.speed_up_kbps   ? `${plan.speed_up_kbps}k`   : '0'
     const down = plan.speed_down_kbps ? `${plan.speed_down_kbps}k` : '0'
@@ -98,7 +98,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
     return `/ip hotspot user profile add name="${plan.name}" rate-limit="${up}/${down}" session-timeout=${to} shared-users=1 keepalive-timeout=none mac-cookie-timeout=3d comment="Vertex Plan - ${plan.name} - KSH ${plan.price}"`
   }).join('\n')
 
-  // ── Build the billing-trigger source string with CORRECT escaping ──────────
+  // -- Build the billing-trigger source string with CORRECT escaping ----------
   const Q  = '\\"'
   const NL = '\n'
   const fetchUrl    = supabaseUrl + '/functions/v1/mikrotik-trigger?router=' + id
@@ -125,7 +125,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   ]
   const triggerSource = scriptLines.join(NL)
 
-  // ── Login.html: use single-quoted HTML attrs so no RouterOS " conflict ────
+  // -- Login.html: use single-quoted HTML attrs so no RouterOS " conflict ----
   const loginHtml = (
     "<html><head>" +
     "<meta http-equiv='refresh' content='0; url=" +
@@ -139,18 +139,18 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   )
 
   return `# =============================================================
-# Vertex Billing – Unified MikroTik Setup Script v5 (Multi-Port & Wi-Fi Bridge)
+# Vertex Billing - Unified MikroTik Setup Script v5 (Multi-Port & Wi-Fi Bridge)
 # Run in Winbox > New Terminal
 # =============================================================
 
 :log info "Vertex Billing: Starting setup (Router ID: ${id})..."
 
-# ── 1. Create Hotspot Bridge (bridge-hotspot) ────────────────
+# -- 1. Create Hotspot Bridge (bridge-hotspot) ----------------
 :if ([:len [/interface bridge find where name="bridge-hotspot"]] = 0) do={
   /interface bridge add name=bridge-hotspot comment="Vertex Hotspot Bridge"
 }
 
-# ── 2. Add Ethernet & Wi-Fi interfaces to the bridge ─────────
+# -- 2. Add Ethernet & Wi-Fi interfaces to the bridge ---------
 # Add all ethernet interfaces except ether1 (WAN)
 :foreach p in=[/interface ethernet find] do={
   :local ethName [/interface ethernet get $p name]
@@ -178,10 +178,10 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   /ip address add address=${hotspotGateway}/24 interface=bridge-hotspot comment="Hotspot Gateway"
 }
 
-# ── 3. DNS ────────────────────────────────────────────────────
+# -- 3. DNS ----------------------------------------------------
 /ip dns set servers=${dnsServer},8.8.4.4 allow-remote-requests=yes
 
-# ── 4. DHCP server on bridge-hotspot ──────────────────────────
+# -- 4. DHCP server on bridge-hotspot --------------------------
 :if ([:len [/ip pool find where name="hs-pool"]] = 0) do={
   /ip pool add name=hs-pool ranges=192.168.88.10-192.168.88.254
 }
@@ -192,7 +192,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   /ip dhcp-server network add address=${hotspotNetwork} gateway=${hotspotGateway} dns-server=${hotspotGateway}
 }
 
-# ── 5. Hotspot profile & server on bridge-hotspot ─────────────
+# -- 5. Hotspot profile & server on bridge-hotspot -------------
 :if ([:len [/ip hotspot profile find where name="Vertex-Profile"]] > 0) do={
   /ip hotspot profile remove [find name="Vertex-Profile"]
 }
@@ -203,13 +203,13 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
 }
 /ip hotspot add name="${hotspotName}" interface=bridge-hotspot address-pool=hs-pool profile="Vertex-Profile" disabled=no
 
-# ── 6. Walled garden ──────────────────────────────────────────
+# -- 6. Walled garden ------------------------------------------
 /ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept
 ${walledGardenCmd}
 /ip hotspot walled-garden add dst-host="*.supabase.co" action=accept
 /ip hotspot walled-garden add dst-host="*.netlify.app" action=accept
 
-# ── 7. Write login.html (waits up to 30s for hotspot to start) ─
+# -- 7. Write login.html (waits up to 30s for hotspot to start) -
 :local loginDone false
 :local attempts 0
 :delay 5s
@@ -227,7 +227,7 @@ ${walledGardenCmd}
   :log warning "Vertex Billing: hotspot/login.html not found yet"
 }
 
-# ── 8. API user for REST access ───────────────────────────────
+# -- 8. API user for REST access -------------------------------
 :if ([:len [/user group find where name="billing-group"]] = 0) do={
   /user group add name=billing-group policy=api,read,write,local,sensitive
 }
@@ -238,17 +238,17 @@ ${walledGardenCmd}
 /ip service enable api
 /ip service set api port=8728
 
-# ── 9. Sync plan profiles ─────────────────────────────────────
+# -- 9. Sync plan profiles -------------------------------------
 :foreach p in=[/ip hotspot user profile find where comment~"Vertex Plan"] do={
   /ip hotspot user profile remove $p
 }
 ${profileLines || '# (No plans configured yet)'}
 
-# ── 10. Heartbeat + session poller (uses Winbox-safe scheduling) 
+# -- 10. Heartbeat + session poller (uses Winbox-safe scheduling) 
 /system scheduler remove [find name=billing-trigger-scheduler]
 /system scheduler add name=billing-trigger-scheduler interval=5s on-event=":do {/tool fetch url=\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\" check-certificate=no http-method=get http-header-field=\"Authorization: Bearer ${supabaseAnonKey},apikey: ${supabaseAnonKey}\" keep-result=no} on-error={:log error \"Heartbeat failed\"}"
 
-# ── 11. NAT masquerade ────────────────────────────────────────
+# -- 11. NAT masquerade ----------------------------------------
 :if ([:len [/ip firewall nat find where comment="NAT Masquerade"]] = 0) do={
   :if ([:len [/interface list find where name="WAN"]] > 0) do={
     /ip firewall nat add chain=srcnat out-interface-list=WAN action=masquerade comment="NAT Masquerade"
