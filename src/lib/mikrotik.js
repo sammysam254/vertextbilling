@@ -82,7 +82,7 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   try {
     const u = new URL(billingServerUrl)
     if (u.hostname && !/^[0-9.]+$/.test(u.hostname)) {
-      walledGardenCmd = `/ip hotspot walled-garden add dst-host="${u.hostname}" action=accept`
+      walledGardenCmd = `/ip hotspot walled-garden add dst-host="${u.hostname}" action=allow`
     } else if (u.hostname) {
       walledGardenCmd = `/ip hotspot walled-garden ip add dst-address=${u.hostname} action=accept`
     }
@@ -206,8 +206,8 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
 # -- 6. Walled garden ------------------------------------------
 /ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept
 ${walledGardenCmd}
-/ip hotspot walled-garden add dst-host="*.supabase.co" action=accept
-/ip hotspot walled-garden add dst-host="*.netlify.app" action=accept
+/ip hotspot walled-garden add dst-host="*.supabase.co" action=allow
+/ip hotspot walled-garden add dst-host="*.netlify.app" action=allow
 
 # -- 7. Write login.html (waits up to 30s for hotspot to start) -
 :local loginDone false
