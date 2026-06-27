@@ -246,7 +246,7 @@ ${profileLines || '# (No plans configured yet)'}
 
 # -- 10. Heartbeat + session poller (uses Winbox-safe scheduling) 
 /system scheduler remove [find name=billing-trigger-scheduler]
-/system scheduler add name=billing-trigger-scheduler interval=5s on-event=":do {/tool fetch url=\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\" check-certificate=no http-method=get http-header-field=\"Authorization: Bearer ${supabaseAnonKey},apikey: ${supabaseAnonKey}\" keep-result=no} on-error={:log error \"Heartbeat failed\"}"
+/system scheduler add name=billing-trigger-scheduler interval=5s on-event=":do {/tool fetch url=\\\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\\\" check-certificate=no http-method=get http-header-field=\\\"Authorization: Bearer ${supabaseAnonKey},apikey: ${supabaseAnonKey}\\\" keep-result=no} on-error={:log error \\\"Heartbeat failed\\\"}"
 
 # -- 11. NAT masquerade ----------------------------------------
 :if ([:len [/ip firewall nat find where comment="NAT Masquerade"]] = 0) do={
