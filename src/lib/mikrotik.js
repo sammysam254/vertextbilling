@@ -3,362 +3,170 @@
  * Generates .rsc scripts based on system configuration
  */
 
-/**
- * Generate the initial hotspot setup script
- */
-export function generateHotspotSetupScript(config = {}) {
-  const {
-    interfaceName = 'ether2',
-    hotspotNetwork = '192.168.88.0/24',
-    hotspotGateway = '192.168.88.1',
-    dnsServer = '8.8.8.8',
-    hotspotName = 'Vertex-Hotspot',
-    billingServerUrl = 'http://192.168.88.1:3000',
-  } = config
+// ─── Helper scripts (small utilities) ─────────────────────────────────────────
 
-  let walledGardenCmds = ''
-  try {
-    const url = new URL(billingServerUrl)
-    if (url.hostname && !/^[0-9.]+$/.test(url.hostname)) {
-      walledGardenCmds = `/ip hotspot walled-garden add dst-host="${url.hostname}" action=accept`
-    } else if (url.hostname) {
-      walledGardenCmds = `/ip hotspot walled-garden ip add dst-address=${url.hostname} action=accept`
-    }
-  } catch (e) {
-    walledGardenCmds = `/ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept`
-  }
-
-  return `# =============================================================
-# Vertex Billing – Hotspot Initial Setup Script
-# Run this in MikroTik Terminal (Winbox > New Terminal)
-# =============================================================
-
-# 1. Prepare interface
-# If interface is currently a port of a bridge, remove it to allow direct configuration
-:if ([:len [/interface bridge port find where interface=${interfaceName}]] > 0) do={
-  /interface bridge port remove [find where interface=${interfaceName}]
-}
-
-# Set IP address on the hotspot interface if not already set
-:if ([:len [/ip address find where interface="${interfaceName}"]] = 0) do={
-  /ip address add address=${hotspotGateway}/24 interface=${interfaceName} comment="Hotspot Gateway"
-}
-
-# 2. Setup DNS
-/ip dns set servers=${dnsServer},8.8.4.4 allow-remote-requests=yes
-
-# 3. Setup DHCP server for hotspot clients
-:if ([:len [/ip pool find where name="hs-pool"]] = 0) do={
-  /ip pool add name=hs-pool ranges=192.168.88.10-192.168.88.254
-}
-:if ([:len [/ip dhcp-server find where interface="${interfaceName}"]] = 0) do={
-  /ip dhcp-server add name=hotspot-dhcp interface=${interfaceName} address-pool=hs-pool lease-time=1h disabled=no
-}
-:if ([:len [/ip dhcp-server network find where address="${hotspotNetwork}"]] = 0) do={
-  /ip dhcp-server network add address=${hotspotNetwork} gateway=${hotspotGateway} dns-server=${hotspotGateway}
-}
-
-# 4. Setup Hotspot Profile (Non-interactive)
-:if ([:len [/ip hotspot profile find where name="Vertex-Profile"]] > 0) do={
-  /ip hotspot profile remove [find name="Vertex-Profile"]
-}
-/ip hotspot profile add name="Vertex-Profile" \\
-  hotspot-address=${hotspotGateway} \\
-  dns-name="${hotspotName}" \\
-  html-directory="hotspot" \\
-  login-by=http-chap,http-pap,mac
-
-# 5. Setup Hotspot Server (Non-interactive)
-:if ([:len [/ip hotspot find where name="${hotspotName}"]] > 0) do={
-  /ip hotspot remove [find name="${hotspotName}"]
-}
-/ip hotspot add name="${hotspotName}" \\
-  interface=${interfaceName} \\
-  address-pool=hs-pool \\
-  profile="Vertex-Profile" \\
-  disabled=no
-
-# 6. Walled garden – allow billing server and portal without login
-/ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept
-${walledGardenCmds}
-
-# 7. Setup external portal redirection in login.html
-# Overwrite default login.html to automatically redirect client browsers to captive portal
-:delay 2s
-/file set [find name="hotspot/login.html"] contents="<html><head><meta http-equiv=\\"refresh\\" content=\\"0; url=${billingServerUrl}/portal?mac=\\\\$(mac)&ip=\\\\$(ip)&link-orig=\\\\$(link-orig-esc)\\" /></head></html>"
-
-# 8. NAT masquerade for internet access
-:if ([:len [/ip firewall nat find where comment="NAT Masquerade"]] = 0) do={
-  :if ([:len [/interface list find where name="WAN"]] > 0) do={
-    /ip firewall nat add chain=srcnat out-interface-list=WAN action=masquerade comment="NAT Masquerade"
-  } else={
-    /ip firewall nat add chain=srcnat out-interface=ether1 action=masquerade comment="NAT Masquerade"
-  }
-}
-
-:log info "Vertex Billing Hotspot setup complete!"
-`
-}
-
-/**
- * Generate script to create API user for billing system
- */
-export function generateApiUserScript(config = {}) {
-  const {
-    apiUsername = 'billing-api',
-    apiPassword = 'StrongP@ss123!',
-  } = config
-
-  return `# =============================================================
-# Create MikroTik API User for Billing System
-# =============================================================
-
-# 1. Create user group with limited permissions
-/user group add name=billing-group policy=api,read,write,local,sensitive
-
-# 2. Create the API user
-/user add name=${apiUsername} password=${apiPassword} group=billing-group comment="Vertex Billing API User"
-
-# 3. Enable API service
-/ip service enable api
-/ip service set api port=8728
-
-:log info "API user '${apiUsername}' created successfully!"
-:put "API user created. Use port 8728 for API access."
-`
-}
-
-/**
- * Generate script to add hotspot user profiles (plans)
- */
 export function generatePlanProfilesScript(plans = []) {
   if (!plans.length) {
     return `# No plans configured yet. Add plans in Plan Setup first.`
   }
-
   const profileLines = plans.map(plan => {
-    const rateUp = plan.speed_up_kbps ? `${plan.speed_up_kbps}k` : '0'
+    const rateUp   = plan.speed_up_kbps   ? `${plan.speed_up_kbps}k`   : '0'
     const rateDown = plan.speed_down_kbps ? `${plan.speed_down_kbps}k` : '0'
     const sessionTimeout = plan.duration_hours ? `${plan.duration_hours}h` : '24h'
-    const quota = plan.data_cap_mb ? `${plan.data_cap_mb * 1024 * 1024}` : '0'
-
-    return `/ip hotspot user profile add name="${plan.name}" \\
-  rate-limit="${rateUp}/${rateDown}" \\
-  session-timeout=${sessionTimeout} \\
-  shared-users=1 \\
-  ${quota !== '0' ? `idle-timeout=5m ` : ''}\\
-  keepalive-timeout=none \\
-  mac-cookie-timeout=3d \\
-  comment="Vertex Plan - ${plan.name} - KSH ${plan.price}"`
-  }).join('\n\n')
+    return `/ip hotspot user profile add name="${plan.name}" rate-limit="${rateUp}/${rateDown}" session-timeout=${sessionTimeout} shared-users=1 keepalive-timeout=none mac-cookie-timeout=3d comment="Vertex Plan - ${plan.name} - KSH ${plan.price}"`
+  }).join('\n')
 
   return `# =============================================================
 # Add Hotspot User Profiles (Plans) to MikroTik
-# Run AFTER initial setup script
 # =============================================================
 
-# Remove existing billing profiles first
 :foreach p in=[/ip hotspot user profile find where comment~"Vertex Plan"] do={
   /ip hotspot user profile remove $p
 }
 
-# Add plans
 ${profileLines}
 
-:log info "Hotspot profiles synced successfully!"
+:log info "Hotspot profiles synced!"
 :put "Done! ${plans.length} plan(s) added."
 `
 }
 
-/**
- * Generate script to add a single hotspot user (after payment)
- */
 export function generateAddUserScript(user = {}) {
-  const {
-    username,
-    password,
-    macAddress = '',
-    planName,
-    sessionTimeout = '24h',
-  } = user
-
-  return `# =============================================================
-# Add Hotspot User (Run after payment confirmed)
-# =============================================================
-
-/ip hotspot user add name="${username}" \\
-  password="${password}" \\
-  profile="${planName}" \\
-  ${macAddress ? `mac-address=${macAddress} \\` : ''}
-  limit-uptime=${sessionTimeout} \\
-  comment="Added by Vertex Billing - $([:tostr [/system clock get date]])"
-
-:log info "User ${username} added with profile ${planName}"
-:put "User ${username} activated successfully!"
+  const { username, password, macAddress = '', planName, sessionTimeout = '24h' } = user
+  return `# Add Hotspot User after payment
+/ip hotspot user add name="${username}" password="${password}" profile="${planName}" ${macAddress ? `mac-address=${macAddress} ` : ''}limit-uptime=${sessionTimeout} comment="Added by Vertex Billing"
+:log info "User ${username} activated"
 `
 }
 
-/**
- * Generate bulk voucher script
- */
 export function generateVouchersScript(vouchers = [], planName = '') {
   if (!vouchers.length) return `# No vouchers to add`
-
   const lines = vouchers.map(v =>
     `/ip hotspot user add name="${v.code}" password="${v.code}" profile="${planName}" comment="Voucher"`
   ).join('\n')
-
-  return `# =============================================================
-# Add Vouchers to MikroTik Hotspot
-# Plan: ${planName}
-# =============================================================
-
-${lines}
-
-:put "Added ${vouchers.length} voucher(s) for plan ${planName}"
-`
+  return `# Add Vouchers\n${lines}\n:put "Added ${vouchers.length} voucher(s)"`
 }
 
-/**
- * Generate the API login trigger script (scheduled on MikroTik)
- * This polls Supabase for pending logins and activates users
- */
-export function generateApiLoginTriggerScript(config = {}) {
-  const {
-    id = 'ROUTER_ID',
-    supabaseUrl = 'https://your-project.supabase.co',
-    supabaseAnonKey = 'your-anon-key',
-  } = config
-
-  return `# =============================================================
-# Vertex Billing – API Login Trigger Setup Script
-# Run this in MikroTik Terminal (Winbox > New Terminal)
-# This automatically configures the script and schedules it to run every 2s
-# =============================================================
-
-# 1. Create the API trigger script
-/system script remove [find name=billing-trigger]
-/system script add name=billing-trigger source=":do {
-  /tool fetch url=\\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\\" check-certificate=no \\
-    http-method=get \\
-    http-header-field=\\"Authorization: Bearer ${supabaseAnonKey}\\" \\
-    output=none as-value
-} on-error={
-  :log error \\"Billing trigger failed - check network\\"
-}"
-
-# 2. Schedule the script to run every 2 seconds
-/system scheduler remove [find name=billing-trigger-scheduler]
-/system scheduler add name=billing-trigger-scheduler interval=2s on-event="/system script run billing-trigger"
-
-:log info "Vertex Billing API Login Trigger setup complete!"
-:put "Setup complete! Script 'billing-trigger' and Scheduler 'billing-trigger-scheduler' created."
-`
-}
-
-/**
- * Generate the remove user / disconnect script
- */
 export function generateRemoveUserScript(username = '') {
-  return `# =============================================================
-# Remove / Disconnect Hotspot User
-# =============================================================
-
-# Disconnect active session
+  return `# Remove Hotspot User
 :if ([:len [/ip hotspot active find where user="${username}"]] > 0) do={
   /ip hotspot active remove [find where user="${username}"]
-  :log info "Disconnected active session for ${username}"
 }
-
-# Remove user entry
 :if ([:len [/ip hotspot user find where name="${username}"]] > 0) do={
   /ip hotspot user remove [find where name="${username}"]
-  :log info "Removed hotspot user ${username}"
 }
-
-:put "User ${username} removed successfully"
+:put "User ${username} removed"
 `
 }
 
-/**
- * Generate a single unified setup script that configures everything
- */
+// ─── Main Unified Setup Script ────────────────────────────────────────────────
+
 export function generateUnifiedSetupScript(config = {}, plans = []) {
   const {
-    id = 'ROUTER_ID',
-    interfaceName = 'ether2',
+    id             = 'ROUTER_ID',
+    interfaceName  = 'ether2',
     hotspotNetwork = '192.168.88.0/24',
     hotspotGateway = '192.168.88.1',
-    dnsServer = '8.8.8.8',
-    hotspotName = 'Vertex-Hotspot',
+    dnsServer      = '8.8.8.8',
+    hotspotName    = 'Vertex-Hotspot',
     billingServerUrl = 'http://192.168.88.1:3000',
-    apiUsername = 'billing-api',
-    apiPassword = 'StrongP@ss123!',
-    supabaseUrl = 'https://your-project.supabase.co',
+    apiUsername    = 'billing-api',
+    apiPassword    = 'StrongP@ss123!',
+    supabaseUrl    = 'https://your-project.supabase.co',
     supabaseAnonKey = 'your-anon-key',
-    user_id = 'USER_ID',
+    user_id        = 'USER_ID',
   } = config
 
-  let walledGardenCmds = ''
+  // ── Walled-garden for billing portal ──────────────────────────────────────
+  let walledGardenCmd = ''
   try {
-    const url = new URL(billingServerUrl)
-    if (url.hostname && !/^[0-9.]+$/.test(url.hostname)) {
-      walledGardenCmds = `/ip hotspot walled-garden add dst-host="${url.hostname}" action=accept`
-    } else if (url.hostname) {
-      walledGardenCmds = `/ip hotspot walled-garden ip add dst-address=${url.hostname} action=accept`
+    const u = new URL(billingServerUrl)
+    if (u.hostname && !/^[0-9.]+$/.test(u.hostname)) {
+      walledGardenCmd = `/ip hotspot walled-garden add dst-host="${u.hostname}" action=accept`
+    } else if (u.hostname) {
+      walledGardenCmd = `/ip hotspot walled-garden ip add dst-address=${u.hostname} action=accept`
     }
-  } catch (e) {
-    walledGardenCmds = `/ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept`
+  } catch (_) {
+    walledGardenCmd = `/ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept`
   }
 
-  // Extract supabase domain for walled garden
-  let supabaseDomain = ''
-  try {
-    supabaseDomain = new URL(supabaseUrl).hostname
-  } catch (e) {}
-
-
+  // ── Plan profiles ──────────────────────────────────────────────────────────
   const profileLines = plans.map(plan => {
-    const rateUp = plan.speed_up_kbps ? `${plan.speed_up_kbps}k` : '0'
-    const rateDown = plan.speed_down_kbps ? `${plan.speed_down_kbps}k` : '0'
-    const sessionTimeout = plan.duration_hours ? `${plan.duration_hours}h` : '24h'
-    const quota = plan.data_cap_mb ? `${plan.data_cap_mb * 1024 * 1024}` : '0'
+    const up   = plan.speed_up_kbps   ? `${plan.speed_up_kbps}k`   : '0'
+    const down = plan.speed_down_kbps ? `${plan.speed_down_kbps}k` : '0'
+    const to   = plan.duration_hours  ? `${plan.duration_hours}h`  : '24h'
+    return `/ip hotspot user profile add name="${plan.name}" rate-limit="${up}/${down}" session-timeout=${to} shared-users=1 keepalive-timeout=none mac-cookie-timeout=3d comment="Vertex Plan - ${plan.name} - KSH ${plan.price}"`
+  }).join('\n')
 
-    return `/ip hotspot user profile add name="${plan.name}" \\
-  rate-limit="${rateUp}/${rateDown}" \\
-  session-timeout=${sessionTimeout} \\
-  shared-users=1 \\
-  ${quota !== '0' ? `idle-timeout=5m ` : ''}\\
-  keepalive-timeout=none \\
-  mac-cookie-timeout=3d \\
-  comment="Vertex Plan - ${plan.name} - KSH ${plan.price}"`
-  }).join('\n\n')
+  // ── Build the billing-trigger source string with CORRECT escaping ──────────
+  //
+  // The RouterOS command is:
+  //   /system script add name=billing-trigger source="<SCRIPT_BODY>"
+  //
+  // Inside the source="..." value, any literal " must be written as \"
+  // In plain JS strings, the two characters  \  "  are written as  '\\"'
+  //
+  const Q  = '\\"'                // RouterOS escaped quote  →  \"
+  const NL = '\n'                 // newline inside the source body
+  const fetchUrl    = supabaseUrl + '/functions/v1/mikrotik-trigger?router=' + id
+  const authHeader  = 'Authorization: Bearer ' + supabaseAnonKey + ',apikey: ' + supabaseAnonKey
+
+  // Each line of the RouterOS script body:
+  const scriptLines = [
+    ':do {',
+    '/tool fetch url=' + Q + fetchUrl + Q
+      + ' check-certificate=no'
+      + ' http-method=get'
+      + ' http-header-field=' + Q + authHeader + Q
+      + ' keep-result=yes'
+      + ' dst-path=action.rsc',
+    ':if ([:len [/file find where name=action.rsc]] > 0) do={',
+    '  :if ([/file get [find name=action.rsc] size] > 15) do={',
+    '    :delay 500ms',
+    '    /import action.rsc',
+    '  }',
+    '  /file remove [find name=action.rsc]',
+    '}',
+    '} on-error={',
+    '  :log error ' + Q + 'Vertex billing heartbeat failed' + Q,
+    '}',
+  ]
+  const triggerSource = scriptLines.join(NL)
+
+  // ── Login.html: use single-quoted HTML attrs so no RouterOS " conflict ────
+  // MikroTik hotspot engine substitutes $(mac), $(ip), $(link-orig-esc) when
+  // SERVING the file (server-side), not at script-execution time.
+  const loginHtml = (
+    "<html><head>" +
+    "<meta http-equiv='refresh' content='0; url=" +
+      billingServerUrl + "/portal" +
+      "?isp=" + user_id +
+      "&mac=$(mac)" +
+      "&ip=$(ip)" +
+      "&link-orig=$(link-orig-esc)" +
+    "'>" +
+    "</head><body><p>Redirecting to captive portal...</p></body></html>"
+  )
 
   return `# =============================================================
-# Vertex Billing – Unified MikroTik Setup Script
-# Run this in Winbox > New Terminal on a fresh or reset router.
-# This configures network, hotspot, API credentials, syncs plans,
-# and sets up the 2-second cloud trigger.
+# Vertex Billing – Unified MikroTik Setup Script v4
+# Run in Winbox > New Terminal
 # =============================================================
 
-:log info "Starting Vertex Billing Unified Setup..."
-:put "Setting up Vertex Billing on interface ${interfaceName}..."
+:log info "Vertex Billing: Starting setup (Router ID: ${id})..."
 
-# 1. Prepare interface
-# If interface is currently a port of a bridge, remove it to allow direct configuration
+# ── 1. Prepare interface ──────────────────────────────────────
 :if ([:len [/interface bridge port find where interface=${interfaceName}]] > 0) do={
   /interface bridge port remove [find where interface=${interfaceName}]
 }
-
-# Set IP address on the hotspot interface if not already set
 :if ([:len [/ip address find where interface="${interfaceName}"]] = 0) do={
   /ip address add address=${hotspotGateway}/24 interface=${interfaceName} comment="Hotspot Gateway"
 }
 
-# 2. Setup DNS
+# ── 2. DNS ────────────────────────────────────────────────────
 /ip dns set servers=${dnsServer},8.8.4.4 allow-remote-requests=yes
 
-# 3. Setup DHCP server for hotspot clients
+# ── 3. DHCP server ────────────────────────────────────────────
 :if ([:len [/ip pool find where name="hs-pool"]] = 0) do={
   /ip pool add name=hs-pool ranges=192.168.88.10-192.168.88.254
 }
@@ -369,84 +177,66 @@ export function generateUnifiedSetupScript(config = {}, plans = []) {
   /ip dhcp-server network add address=${hotspotNetwork} gateway=${hotspotGateway} dns-server=${hotspotGateway}
 }
 
-# 4. Setup Hotspot Profile with External Captive Portal
+# ── 4. Hotspot profile & server ───────────────────────────────
 :if ([:len [/ip hotspot profile find where name="Vertex-Profile"]] > 0) do={
   /ip hotspot profile remove [find name="Vertex-Profile"]
 }
-/ip hotspot profile add name="Vertex-Profile" \\
-  hotspot-address=${hotspotGateway} \\
-  dns-name="${hotspotName}" \\
-  html-directory="hotspot" \\
-  login-by=http-chap,http-pap,mac
+/ip hotspot profile add name="Vertex-Profile" hotspot-address=${hotspotGateway} dns-name="${hotspotName}" html-directory=hotspot login-by=http-chap,http-pap,mac
 
-# 5. Setup Hotspot Server (Non-interactive)
 :if ([:len [/ip hotspot find where name="${hotspotName}"]] > 0) do={
   /ip hotspot remove [find name="${hotspotName}"]
 }
-/ip hotspot add name="${hotspotName}" \\
-  interface=${interfaceName} \\
-  address-pool=hs-pool \\
-  profile="Vertex-Profile" \\
-  disabled=no
+/ip hotspot add name="${hotspotName}" interface=${interfaceName} address-pool=hs-pool profile="Vertex-Profile" disabled=no
 
-# 6. Walled garden – allow billing server, Supabase, and captive portal without login
+# ── 5. Walled garden (allow portal & Supabase without login) ─
 /ip hotspot walled-garden ip add dst-address=${hotspotGateway} action=accept
-${walledGardenCmds}
-${supabaseDomain ? `/ip hotspot walled-garden add dst-host="${supabaseDomain}" action=accept` : ''}
-# Allow Supabase functions subdomain (for heartbeat calls)
+${walledGardenCmd}
 /ip hotspot walled-garden add dst-host="*.supabase.co" action=accept
+/ip hotspot walled-garden add dst-host="*.netlify.app" action=accept
 
-# 7. Write login.html to redirect clients to captive portal
-# MikroTik substitutes $(mac), $(ip), $(link-orig-esc) when SERVING the file
-:delay 3s
-:do {
-  /file set [find name="hotspot/login.html"] contents="<html><head><meta http-equiv='refresh' content='0; url=${billingServerUrl}/portal?isp=${user_id}&mac=$(mac)&ip=$(ip)&link-orig=$(link-orig-esc)'></head><body><p>Redirecting to captive portal...</p></body></html>"
-  :log info "login.html updated successfully"
-} on-error={
-  :log error "login.html update failed - is the hotspot running?"
+# ── 6. Write login.html (waits up to 30s for hotspot to start) ─
+:local loginDone false
+:local attempts 0
+:delay 5s
+:while ($attempts < 15 and !$loginDone) do={
+  :if ([:len [/file find where name="hotspot/login.html"]] > 0) do={
+    /file set [find name="hotspot/login.html"] contents="${loginHtml}"
+    :set loginDone true
+    :log info "Vertex Billing: login.html updated OK"
+  } else={
+    :delay 2s
+    :set attempts ($attempts + 1)
+  }
+}
+:if (!$loginDone) do={
+  :log warning "Vertex Billing: hotspot/login.html not found yet - will retry on next script run"
 }
 
-# 8. Create API User for Billing Connection
+# ── 7. API user for REST access ───────────────────────────────
 :if ([:len [/user group find where name="billing-group"]] = 0) do={
   /user group add name=billing-group policy=api,read,write,local,sensitive
 }
 :if ([:len [/user find where name="${apiUsername}"]] > 0) do={
   /user remove [find name="${apiUsername}"]
 }
-/user add name=${apiUsername} password=${apiPassword} group=billing-group comment="Vertex Billing API User"
+/user add name=${apiUsername} password=${apiPassword} group=billing-group comment="Vertex Billing API"
 /ip service enable api
 /ip service set api port=8728
 
-# 9. Sync Plan Profiles
-# Remove existing billing user profiles
+# ── 8. Sync plan profiles ─────────────────────────────────────
 :foreach p in=[/ip hotspot user profile find where comment~"Vertex Plan"] do={
   /ip hotspot user profile remove $p
 }
-# Add plans
-${profileLines}
+${profileLines || '# (No plans configured yet)'}
 
-# 10. Create Cloud Trigger Script & Scheduler
-# Write the heartbeat script to a file first to avoid escaping issues
+# ── 9. Heartbeat + session poller ────────────────────────────
+# Every 2 seconds: updates last_seen + processes pending sessions
 /system script remove [find name=billing-trigger]
-
-:local triggerUrl "${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}"
-:local authHeader "Authorization: Bearer ${supabaseAnonKey},apikey: ${supabaseAnonKey}"
-
-/system script add name=billing-trigger source=\
-":do {\
-\n/tool fetch url=\"${supabaseUrl}/functions/v1/mikrotik-trigger?router=${id}\" check-certificate=no http-method=get http-header-field=\"Authorization: Bearer ${supabaseAnonKey},apikey: ${supabaseAnonKey}\" keep-result=yes dst-path=action.rsc\
-\n:if ([:len [/file find where name=action.rsc]] > 0) do={\
-\n:local sz [/file get [find name=action.rsc] size]\
-\n:if (\$sz > 10) do={ :delay 500ms; /import action.rsc }\
-\n/file remove [find name=action.rsc]\
-\n}\
-\n} on-error={ :log error \"Vertex billing heartbeat failed\" }"
-
-# Schedule the trigger script to run every 2 seconds
+/system script add name=billing-trigger source="${triggerSource}"
 /system scheduler remove [find name=billing-trigger-scheduler]
 /system scheduler add name=billing-trigger-scheduler interval=2s on-event="/system script run billing-trigger"
 
-# NAT masquerade for internet access
+# ── 10. NAT masquerade ────────────────────────────────────────
 :if ([:len [/ip firewall nat find where comment="NAT Masquerade"]] = 0) do={
   :if ([:len [/interface list find where name="WAN"]] > 0) do={
     /ip firewall nat add chain=srcnat out-interface-list=WAN action=masquerade comment="NAT Masquerade"
@@ -455,10 +245,11 @@ ${profileLines}
   }
 }
 
-:log info "Vertex Billing setup successfully complete!"
+:log info "Vertex Billing setup complete!"
 :put "========================================================="
-:put " Vertex Billing configuration is complete!"
-:put " Router status will show 'Online' in your dashboard."
+:put " Setup done! Router ID: ${id}"
+:put " Status will show ONLINE within 10 seconds."
+:put " Check: System > Log (filter: 'billing') for status."
 :put "========================================================="
 `
 }
